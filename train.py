@@ -37,7 +37,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
             train_loss.reset_states()
 
         if (optimizer.iterations+1) % save_every==0:
-            save_path = ckpt_path + './weights/model_step%d.h5' % (optimizer.iterations+1)
+            save_path = './weights/model_step%d.h5' % (optimizer.iterations+1)
             model.save_weights(save_path)
             
         if optimizer.iterations > iterations:
