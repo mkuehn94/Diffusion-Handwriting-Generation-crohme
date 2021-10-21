@@ -123,11 +123,14 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height):
 def create_dataset(strokes, texts, samples, style_extractor, batch_size, buffer_size):    
     #we DO NOT SHUFFLE here, because we will shuffle later
     samples = tf.data.Dataset.from_tensor_slices(samples).batch(batch_size)
+    '''
     for count, s in enumerate(samples):
         style_vec = style_extractor(s)
         style_vec = style_vec.numpy()
+        style_vec = np.zeros((96, 14, 1280))
         if count==0: style_vectors = np.zeros((0, style_vec.shape[1], 1280))
-        style_vectors = np.concatenate((style_vectors, style_vec), axis=0)
+        style_vectors = np.concatenate((style_vectors, style_vec), axis=0)'''
+    style_vectors = np.zeros((len(texts), 0, 1280))
     style_vectors = style_vectors.astype('float32')
     
     dataset = tf.data.Dataset.from_tensor_slices((strokes, texts, style_vectors))
