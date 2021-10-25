@@ -126,7 +126,6 @@ def create_dataset(strokes, texts, samples, style_extractor, batch_size, buffer_
     for count, s in enumerate(samples):
         style_vec = style_extractor(s)
         style_vec = style_vec.numpy()
-        style_vec = np.zeros((96, 14, 1280))
         if count==0: style_vectors = np.zeros((0, style_vec.shape[1], 1280))
         style_vectors = np.concatenate((style_vectors, style_vec), axis=0)
     #style_vectors = np.zeros((len(texts), 0, 1280))
