@@ -85,11 +85,9 @@ def main():
     lr = nn.InvSqrtSchedule(C3, warmup_steps=WARMUP_STEPS)
     optimizer = tf.keras.optimizers.Adam(lr, beta_1=0.9, beta_2=0.98, clipnorm=100)
     
-    path = './data/crohme_strokes.p'
+    path = './data/crohme_cstrokes.p'
     strokes, texts, samples = utils.preprocess_data(path, MAX_TEXT_LEN, MAX_SEQ_LEN, WIDTH, 96)
-    sub_path = './data/crohme_strokes.p'
-    sub_strokes, sub_texts, sub_samples = utils.preprocess_data(sub_path, MAX_TEXT_LEN, MAX_SEQ_LEN, WIDTH, 96)
-    dataset = utils.create_dataset(strokes + sub_strokes, texts + sub_texts, samples + sub_samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
+    dataset = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
 
     train(dataset, NUM_STEPS, model, optimizer, alpha_set, PRINT_EVERY, SAVE_EVERY)
 
