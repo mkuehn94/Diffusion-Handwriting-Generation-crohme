@@ -87,7 +87,9 @@ def main():
     
     path = './data/crohme_strokes.p'
     strokes, texts, samples = utils.preprocess_data(path, MAX_TEXT_LEN, MAX_SEQ_LEN, WIDTH, 96)
-    dataset = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
+    sub_path = './data/crohme_strokes.p'
+    sub_strokes, sub_texts, sub_samples = utils.preprocess_data(sub_path, MAX_TEXT_LEN, MAX_SEQ_LEN, WIDTH, 96)
+    dataset = utils.create_dataset(strokes + sub_strokes, texts + sub_texts, samples + sub_samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
 
     train(dataset, NUM_STEPS, model, optimizer, alpha_set, PRINT_EVERY, SAVE_EVERY)
 
