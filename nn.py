@@ -207,7 +207,7 @@ class DecoderLayer(Layer):
 class Text_Style_Encoder(Model):
     def __init__(self, d_model, d_ff=512):
         super().__init__()
-        self.emb = Embedding(76, d_model)
+        self.emb = Embedding(77, d_model)
         self.text_conv = Conv1D(d_model, 3, padding='same')
         self.style_ffn = ff_network(d_model, d_ff)
         self.mha = MultiHeadAttention(d_model, 8)
