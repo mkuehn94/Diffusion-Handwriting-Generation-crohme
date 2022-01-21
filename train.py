@@ -23,7 +23,7 @@ def train_step(x, pen_lifts, text, style_vectors, glob_args):
     train_loss(loss)
     return score, att
 
-def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, save_every=10000):
+def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, save_every=10000, train_summary_writer = None):
     s = time.time()
     bce = tf.keras.losses.BinaryCrossentropy(from_logits=False)
     train_loss = tf.keras.metrics.Mean()
@@ -34,6 +34,9 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
         
         if optimizer.iterations%print_every==0:
             print("Iteration %d, Loss %f, Time %ds" % (optimizer.iterations, train_loss.result(), time.time()-s))
+            with train_summary_writer.as_default():
+                tf.summary.scalar('loss', train_loss.result(), step=optimizer.iterations)
+
             train_loss.reset_states()
 
         if (optimizer.iterations+1) % save_every==0:
@@ -57,6 +60,10 @@ def main():
     parser.add_argument('--channels', help='number of channels in first layer, default 128', default=128, type=int)
     parser.add_argument('--print_every', help='show train loss every n iters', default=1000, type=int)
     parser.add_argument('--save_every', help='save ckpt every n iters', default=10000, type=int)
+
+    current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    train_log_dir = 'logs/diffusionwriter/' + current_time + '/train'
+    train_summary_writer = tf.summary.create_file_writer(train_log_dir)
 
     args = parser.parse_args()
     NUM_STEPS = args.steps
@@ -89,7 +96,7 @@ def main():
     strokes, texts, samples = utils.preprocess_data(path, MAX_TEXT_LEN, MAX_SEQ_LEN, WIDTH, 96)
     dataset = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
 
-    train(dataset, NUM_STEPS, model, optimizer, alpha_set, PRINT_EVERY, SAVE_EVERY)
+    train(dataset, NUM_STEPS, model, optimizer, alpha_set, PRINT_EVERY, SAVE_EVERY, train_summary_writer)
 
 if __name__ == '__main__':
     main()
