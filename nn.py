@@ -125,7 +125,7 @@ class ConvSubLayer(Model):
         self.affine2 = AffineTransformLayer(filters)
         self.affine3 = AffineTransformLayer(filters)
         self.conv_skip = Conv1D(filters, 3, padding='same')
-        self.conv1 = Conv1D(filters//2, 5, dilation_rate=dils[0], padding='same')
+        self.conv1 = Conv1D(filters//2, 3, dilation_rate=dils[0], padding='same')
         self.conv2 = Conv1D(filters, 3, dilation_rate=dils[0], padding='same')
         self.fc = Dense(filters)
         self.drop = Dropout(drop_rate)
@@ -207,7 +207,7 @@ class DecoderLayer(Layer):
 class Text_Style_Encoder(Model):
     def __init__(self, d_model, d_ff=512):
         super().__init__()
-        self.emb = Embedding(77, d_model)
+        self.emb = Embedding(76, d_model)
         self.text_conv = Conv1D(d_model, 3, padding='same')
         self.style_ffn = ff_network(d_model, d_ff)
         self.mha = MultiHeadAttention(d_model, 8)
