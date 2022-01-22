@@ -61,12 +61,10 @@ def main():
     parser.add_argument('--channels', help='number of channels in first layer, default 128', default=128, type=int)
     parser.add_argument('--print_every', help='show train loss every n iters', default=1000, type=int)
     parser.add_argument('--save_every', help='save ckpt every n iters', default=10000, type=int)
-
-    current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    train_log_dir = 'logs/diffusionwriter/' + current_time + '/train'
-    train_summary_writer = tf.summary.create_file_writer(train_log_dir)
+    parser.add_argument('--tb_prefix', help='prefix for tensorboard logs', default=None, type=str)
 
     args = parser.parse_args()
+    TB_PREFIX = args.tb_prefix
     NUM_STEPS = args.steps
     BATCH_SIZE = args.batchsize
     MAX_SEQ_LEN = args.seqlen
@@ -81,6 +79,13 @@ def main():
     C2 = C1 * 3//2
     C3 = C1 * 2
     MAX_SEQ_LEN = MAX_SEQ_LEN - (MAX_SEQ_LEN%8) + 8
+
+    current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    if TB_PREFIX is None:
+        train_log_dir = 'logs/diffusionwriter/{}/train'.format(current_time)
+    else:
+        train_log_dir = 'logs/diffusionwriter/{}_{}/train'.format(TB_PREFIX, current_time)
+    train_summary_writer = tf.summary.create_file_writer(train_log_dir)
 
     BUFFER_SIZE = 3000
     L = 60
