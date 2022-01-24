@@ -25,8 +25,12 @@ def main():
                                                  this if loaded model was trained with that hyperparameter', default=128, type=int)
     
     args = parser.parse_args()
+    args.textstring = ['\\frac', '{', '1', '}', '{', 'x', '}', '<end>']#"ab ab ab"#
     timesteps = len(args.textstring) * 16 if args.seqlen is None else args.seqlen
     timesteps = timesteps - (timesteps%8) + 8 
+    print(timesteps)
+    #print(utils.CrohmeTokenizer().encode(['\\frac', '{', '1', '}', '{', '\\sqrt', '2', '}']))
+    #print(utils.Tokenizer().encode(['a', 'b', 'c', 'd', ' ', 't', 'o']))
     #must be divisible by 8 due to downsampling layers
 
     if args.writersource is None:
@@ -36,7 +40,8 @@ def main():
         sourcename = args.writersource
  
     L = 60
-    tokenizer = utils.Tokenizer()
+    #tokenizer = utils.Tokenizer()
+    tokenizer = utils.CrohmeTokenizer()
     beta_set = utils.get_beta_set()
     alpha_set = tf.math.cumprod(1-beta_set)
 
@@ -56,9 +61,17 @@ def main():
 
     writer_img = tf.expand_dims(preprocessing.read_img(sourcename, 96), 0)
     style_vector = style_extractor(writer_img)
-    utils.run_batch_inference(model, beta_set, args.textstring, style_vector, 
-                                tokenizer=tokenizer, time_steps=timesteps, diffusion_mode=args.diffmode, 
-                                show_samples=args.show, path=args.name)
+
+    for i in range(10):
+        print('---')
+        print('beta_set: ', beta_set)
+        print('style_vector: ', style_vector.shape)
+        print('timesteps: ', timesteps)
+        print('diffusion_mode: ', args.diffmode )
+        print('---')
+        utils.run_batch_inference(model, beta_set, args.textstring, style_vector, 
+                                    tokenizer=tokenizer, time_steps=timesteps, diffusion_mode=args.diffmode, 
+                                    show_samples=args.show, path=args.name, show_every=None)
 
 if __name__ == '__main__':
     main()

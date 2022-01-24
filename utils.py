@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 import string
 import pickle
 import os
+import io
+import json
 
 #notation clarification:
 #we use the variable "alpha" for alpha_bar (cumprod 1-beta)
@@ -15,21 +17,33 @@ def get_beta_set():
     beta_set = 0.02 + explin(1e-5, 0.4, 60)
     return beta_set
     
-def show(strokes, name='', show_output=True, scale=1):
+def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, return_image=False):
+    print('show called: ', show_output)
     positions = np.cumsum(strokes, axis=0).T[:2]
     prev_ind = 0
     W, H = np.max(positions, axis=-1) - np.min(positions, axis=-1)
-    plt.figure(figsize=(scale * W/H, scale))
+    fig = plt.figure(figsize=(scale * W/H, scale))
+    if return_image:
+        fig.canvas.draw()
 
     for ind, value in enumerate(strokes[:, 2]):
-        if value > 0.5: 
-            plt.plot(positions[0][prev_ind:ind], positions[1][prev_ind:ind], color='black')
+        if value > 0.5:
+            if stroke_weights:
+                plt.plot(positions[0][prev_ind:ind], positions[1][prev_ind:ind], color=(0.5, 0.2, 0.5))
+            else:
+                plt.plot(positions[0][prev_ind:ind], positions[1][prev_ind:ind], color='black')
             prev_ind = ind
         
     plt.axis('off')
     if name: plt.savefig('./' + name + '.png', bbox_inches='tight')
     if show_output:  plt.show()
     else: plt.close()
+
+    if return_image:
+        data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        return data
+
     
 def get_alphas(batch_size, alpha_set): 
     alpha_indices = tf.random.uniform([batch_size, 1], maxval=len(alpha_set) - 1, dtype=tf.int32)
@@ -50,20 +64,25 @@ def new_diffusion_step(xt, eps, beta, alpha, alpha_next):
     x_t_minus1 += tf.random.normal(xt.shape) * tf.sqrt(1-alpha_next)
     return x_t_minus1
     
-def run_batch_inference(model, beta_set, text, style, tokenizer=None, time_steps=480, diffusion_mode='new', show_every=None, show_samples=True, path=None):
+def run_batch_inference(model, beta_set, text, style, tokenizer=None, time_steps=480, diffusion_mode='new', show_every=None, show_samples=True, path=None, return_image=False):
     if isinstance(text, str):
         text = tf.constant([tokenizer.encode(text)+[1]])
     elif isinstance(text, list) and isinstance(text[0], str):
+        text_org = text.copy()
+        '''
         tmp = []
         for i in text:
             tmp.append(tokenizer.encode(i)+[1])
-        text = tf.constant(tmp)
-
+        text = tf.constant(tmp)'''
+        text = tf.constant([tokenizer.encode(text)+[1]])
+    else:
+        text = tf.expand_dims(text, axis=0)
     bs = text.shape[0]
     L = len(beta_set)
     alpha_set = tf.math.cumprod(1- beta_set)
     x = tf.random.normal([bs, time_steps, 2])
     
+    # reverse iteration L, L-1, L-2, ... 0
     for i in range(L-1, -1, -1):
         alpha = alpha_set[i] * tf.ones([bs, 1, 1]) 
         beta = beta_set[i] * tf.ones([bs, 1, 1]) 
@@ -78,10 +97,21 @@ def run_batch_inference(model, beta_set, text, style, tokenizer=None, time_steps
             if i in show_every:
                 plt.imshow(att[0][0])
                 plt.show()
+                x_new = tf.concat([x, pen_lifts], axis=-1)
+                for i in range(bs):
+                    show(x_new[i], scale=1, show_output = show_samples, name=path)
 
     x = tf.concat([x, pen_lifts], axis=-1)
     for i in range(bs):
-        show(x[i], scale=1, show_output = show_samples, name=path)
+        if return_image:
+            return show(x[i], scale=1, show_output = show_samples, name=path, return_image=True)
+        else:
+            show(x[i], scale=1, show_output = show_samples, name=path)
+
+    '''
+    print(att.shape)
+    for i, token in enumerate(text_org):
+        print(i, token)'''
 
     return x.numpy()
     
@@ -99,7 +129,7 @@ def pad_img(img, width, height):
     img = np.concatenate((img, padding), axis=1)
     return img
 	
-def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height):
+def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height, train_summary_writer=None):
     with open(path, 'rb') as f:
         ds = pickle.load(f)
         
@@ -110,6 +140,12 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height):
             zeros_text = np.zeros((max_text_len-len(text), ))
             text = np.concatenate((text, zeros_text))
             h, w, _ = sample.shape
+            '''
+            with train_summary_writer.as_default():
+                tf.summary.image("Training data", tf.expand_dims(sample, axis=0), step=0)
+                print(tf.expand_dims(sample, axis=0).shape)
+                from random import randrange
+                #tf.summary.image("Training data {}".format(randrange(999)), [sample.astype(np.uint8)], step=0)'''
 
             if x is not None and sample.shape[1] < img_width: 
                 sample = pad_img(sample, img_width, img_height)
@@ -133,7 +169,7 @@ def create_dataset(strokes, texts, samples, style_extractor, batch_size, buffer_
     
     dataset = tf.data.Dataset.from_tensor_slices((strokes, texts, style_vectors))
     dataset = dataset.shuffle(buffer_size).batch(batch_size, drop_remainder=True).prefetch(tf.data.experimental.AUTOTUNE)
-    return dataset
+    return dataset, style_vectors
     
 class Tokenizer:
     def __init__(self):
@@ -163,3 +199,13 @@ class Tokenizer:
         if isinstance(tokens, tf.Tensor): tokens = tokens.numpy()
         text = [self.chars[token] for token in tokens]
         return ''.join(text)
+
+class CrohmeTokenizer:
+    def __init__(self):
+        f = open("./data/latex_histogramm.json", "r")
+        hist = json.loads(f.read())
+        self.vocab = {k: i+2 for i, k in enumerate(hist)}
+        self.vocab[' '], self.vocab['<end>'] = 0, 1
+    
+    def encode(self, tokens):
+        return [self.vocab[t] if t in self.vocab.keys() else 0 for t in tokens] + [1]

@@ -24,7 +24,7 @@ def train_step(x, pen_lifts, text, style_vectors, glob_args):
     train_loss(loss)
     return score, att
 
-def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, save_every=10000, train_summary_writer = None):
+def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, save_every=10000, train_summary_writer = None, val_every = None, val_dataset = None):
     s = time.time()
     bce = tf.keras.losses.BinaryCrossentropy(from_logits=False)
     train_loss = tf.keras.metrics.Mean()
@@ -48,6 +48,42 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
             model.save_weights('./weights/model.h5')
             break
 
+        if val_every is not None and (optimizer.iterations) % val_every==0:
+            print('validation step: {}'.format(optimizer.iterations))
+            seq_lengths = np.count_nonzero(val_dataset['texts'] > 0, axis=1)
+            indices = np.where(seq_lengths < 15)
+            indices = indices[0]
+            np.random.shuffle(indices)
+
+            beta_set = utils.get_beta_set()
+
+            # perform n inference steps, calculate FID metric
+            for i in range(10):
+                #select random text from dataset
+                text = val_dataset['texts'][indices[i]]
+                #text = ['\\frac', '{', '1', '}', '{', 'x', '}', '<end>']
+                style = val_dataset['style_vectors'][indices[i]]
+                style = tf.expand_dims(style, axis=0)
+                seq_length = np.count_nonzero(text)
+                timesteps = seq_length * 16
+                timesteps = timesteps - (timesteps%8) + 8 
+                
+                _stroke = tf.random.normal([1, 400, 2])
+                _text = tf.random.uniform([1, 40], dtype=tf.int32, maxval=50)
+                _noise = tf.random.uniform([1, 1])
+                _style_vector = tf.random.normal([1, 14, 1280])
+                _ = model(_stroke, _text, _noise, _style_vector)
+
+                img = utils.run_batch_inference(model, beta_set, text, style, tokenizer = utils.CrohmeTokenizer(), 
+                                            time_steps=timesteps, diffusion_mode='new', 
+                                            show_samples=False, path=None, show_every=None, return_image=True)
+                
+                with train_summary_writer.as_default():
+                    #print(tf.expand_dims(img, axis=0).shape)
+                    
+                    tf.summary.image("val_inference", tf.expand_dims(img, axis=0), step=optimizer.iterations)
+                #print(img.shape)
+
 def main():
     parser = argparse.ArgumentParser()    
     parser.add_argument('--steps', help='number of trainsteps, default 60k', default=60000, type=int)
@@ -62,6 +98,7 @@ def main():
     parser.add_argument('--print_every', help='show train loss every n iters', default=1000, type=int)
     parser.add_argument('--save_every', help='save ckpt every n iters', default=10000, type=int)
     parser.add_argument('--tb_prefix', help='prefix for tensorboard logs', default=None, type=str)
+    parser.add_argument('--val_every', help='how often to perform validation', default=None, type=int)
 
     args = parser.parse_args()
     TB_PREFIX = args.tb_prefix
@@ -75,6 +112,7 @@ def main():
     WARMUP_STEPS = args.warmup
     PRINT_EVERY = args.print_every
     SAVE_EVERY = args.save_every
+    VAL_EVERY = args.val_every
     C1 = args.channels
     C2 = C1 * 3//2
     C3 = C1 * 2
@@ -99,10 +137,11 @@ def main():
     optimizer = tf.keras.optimizers.Adam(lr, beta_1=0.9, beta_2=0.98, clipnorm=100)
     
     path = './data/crohme_strokes.p'
-    strokes, texts, samples = utils.preprocess_data(path, MAX_TEXT_LEN, MAX_SEQ_LEN, WIDTH, 96)
-    dataset = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
+    strokes, texts, samples = utils.preprocess_data(path, MAX_TEXT_LEN, MAX_SEQ_LEN, WIDTH, 96, train_summary_writer)
+    dataset, style_vectors = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
 
-    train(dataset, NUM_STEPS, model, optimizer, alpha_set, PRINT_EVERY, SAVE_EVERY, train_summary_writer)
+    val_dataset = {'texts': texts, 'samples': samples, 'style_vectors': style_vectors}
+    train(dataset, NUM_STEPS, model, optimizer, alpha_set, PRINT_EVERY, SAVE_EVERY, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset)
 
 if __name__ == '__main__':
     main()
