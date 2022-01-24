@@ -81,6 +81,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
                 with train_summary_writer.as_default():
                     #print(tf.expand_dims(img, axis=0).shape)
                     
+                    print('img shape: {} img avg: {}'.format(img.shape, np.mean(img)))
                     tf.summary.image("val_inference {}".format(i), tf.expand_dims(img, axis=0), step=optimizer.iterations)
                 #print(img.shape)
 

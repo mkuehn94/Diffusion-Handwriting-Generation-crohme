@@ -23,8 +23,7 @@ def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, retur
     prev_ind = 0
     W, H = np.max(positions, axis=-1) - np.min(positions, axis=-1)
     fig = plt.figure(figsize=(scale * W/H, scale))
-    if return_image:
-        fig.canvas.draw()
+    #if return_image:
 
     for ind, value in enumerate(strokes[:, 2]):
         if value > 0.5:
@@ -37,12 +36,16 @@ def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, retur
     plt.axis('off')
     if name: plt.savefig('./' + name + '.png', bbox_inches='tight')
     if show_output:  plt.show()
-    else: plt.close()
 
     if return_image:
+        plt.autoscale()
+        fig.canvas.draw()
         data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
         data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        plt.close()
         return data
+
+    plt.close()
 
     
 def get_alphas(batch_size, alpha_set): 
