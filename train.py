@@ -9,6 +9,7 @@ import datetime
 import scipy
 from tensorflow.keras.applications.inception_v3 import InceptionV3
 import skimage
+import skimage.transform
 
 @tf.function
 def train_step(x, pen_lifts, text, style_vectors, glob_args):
