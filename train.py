@@ -6,6 +6,9 @@ import nn
 import time
 import argparse
 import datetime
+import scipy
+from tensorflow.keras.applications.inception_v3 import InceptionV3
+import skimage
 
 @tf.function
 def train_step(x, pen_lifts, text, style_vectors, glob_args):
@@ -24,6 +27,36 @@ def train_step(x, pen_lifts, text, style_vectors, glob_args):
     train_loss(loss)
     return score, att
 
+
+# scale an array of images to a new size
+def scale_images(images, new_shape):
+	images_list = list()
+	for image in images:
+		# resize with nearest neighbor interpolation
+		new_image = skimage.transform.resize(image, new_shape, 0)
+		# store
+		images_list.append(new_image)
+	return np.asarray(images_list)
+
+def calculate_fid(model, images1, images2):
+	# calculate activations
+	act1 = model.predict(images1)
+	act2 = model.predict(images2)
+	# calculate mean and covariance statistics
+	mu1, sigma1 = act1.mean(axis=0), np.cov(act1, rowvar=False)
+	mu2, sigma2 = act2.mean(axis=0), np.cov(act2, rowvar=False)
+	# calculate sum squared difference between means
+	ssdiff = np.sum((mu1 - mu2)**2.0)
+	# calculate sqrt of product between cov
+	covmean = scipy.linalg.sqrtm(sigma1.dot(sigma2))
+	# check and correct imaginary numbers from sqrt
+	if np.iscomplexobj(covmean):
+		covmean = covmean.real
+	# calculate score
+	fid = ssdiff + np.trace(sigma1 + sigma2 - 2.0 * covmean)
+	return fid
+
+val_model = InceptionV3()
 def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, save_every=10000, train_summary_writer = None, val_every = None, val_dataset = None):
     s = time.time()
     bce = tf.keras.losses.BinaryCrossentropy(from_logits=False)
@@ -57,14 +90,18 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
 
             beta_set = utils.get_beta_set()
 
-            # perform n inference steps, calculate FID metric
+            # perform n inference steps
+            generated_images = []
+            BATCH_SIZE = 96
             for i in range(10):
+                print('val_model: ', val_model)
+
                 #select random text from dataset
-                text = val_dataset['texts'][indices[i]]
-                #text = ['\\frac', '{', '1', '}', '{', 'x', '}', '<end>']
-                style = val_dataset['style_vectors'][indices[i]]
-                style = tf.expand_dims(style, axis=0)
-                seq_length = np.count_nonzero(text)
+                text = val_dataset['texts'][indices[i*BATCH_SIZE:i*BATCH_SIZE+BATCH_SIZE]]
+                style = val_dataset['style_vectors'][indices[i*BATCH_SIZE:i*BATCH_SIZE+BATCH_SIZE]]
+                #style = tf.expand_dims(style, axis=0)
+                seq_length = np.max(np.count_nonzero(text, axis=1))
+                #print('seq_length: ', seq_length)
                 timesteps = seq_length * 16
                 timesteps = timesteps - (timesteps%8) + 8 
                 
@@ -74,16 +111,31 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
                 _style_vector = tf.random.normal([1, 14, 1280])
                 _ = model(_stroke, _text, _noise, _style_vector)
 
-                img = utils.run_batch_inference(model, beta_set, text, style, tokenizer = utils.CrohmeTokenizer(), 
+                #print('text.shape: ', text.shape)
+                #print('style.shape: ', style.shape)
+                imgs = utils.run_batch_inference(model, beta_set, text, style, tokenizer = utils.CrohmeTokenizer(), 
                                             time_steps=timesteps, diffusion_mode='new', 
                                             show_samples=False, path=None, show_every=None, return_image=True)
+
+                for img in imgs:
+                    generated_images.append(img)
                 
                 with train_summary_writer.as_default():
                     #print(tf.expand_dims(img, axis=0).shape)
                     
-                    print('img shape: {} img avg: {}'.format(img.shape, np.mean(img)))
-                    tf.summary.image("val_inference {}".format(i), tf.expand_dims(img, axis=0), step=optimizer.iterations)
+                    print('img shape: {} img avg: {}'.format(imgs[1].shape, np.mean(imgs[1])))
+                    tf.summary.image("val_inference {}".format(i), tf.expand_dims(imgs[1], axis=0), step=optimizer.iterations)
                 #print(img.shape)
+
+            images1 = scale_images(generated_images, (299,299,3))
+            images2 = scale_images(val_dataset['samples'], (299,299,3))
+            
+            print("images1.shape, images2.shape: ", images1.shape, images2.shape)
+            fid_score = calculate_fid(val_model, images1, images2)
+            with train_summary_writer.as_default():
+                tf.summary.scalar('fid_score', fid_score.result(), step=optimizer.iterations)
+
+            print("fid_score: ", fid_score)
 
 def main():
     parser = argparse.ArgumentParser()    

@@ -18,7 +18,6 @@ def get_beta_set():
     return beta_set
     
 def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, return_image=False):
-    print('show called: ', show_output)
     positions = np.cumsum(strokes, axis=0).T[:2]
     prev_ind = 0
     W, H = np.max(positions, axis=-1) - np.min(positions, axis=-1)
@@ -78,7 +77,7 @@ def run_batch_inference(model, beta_set, text, style, tokenizer=None, time_steps
             tmp.append(tokenizer.encode(i)+[1])
         text = tf.constant(tmp)'''
         text = tf.constant([tokenizer.encode(text)+[1]])
-    else:
+    elif len(text.shape) == 1:
         text = tf.expand_dims(text, axis=0)
     bs = text.shape[0]
     L = len(beta_set)
@@ -105,9 +104,10 @@ def run_batch_inference(model, beta_set, text, style, tokenizer=None, time_steps
                     show(x_new[i], scale=1, show_output = show_samples, name=path)
 
     x = tf.concat([x, pen_lifts], axis=-1)
+    images = []
     for i in range(bs):
         if return_image:
-            return show(x[i], scale=1, show_output = show_samples, name=path, return_image=True)
+            images.append(show(x[i], scale=1, show_output = show_samples, name=path, return_image=True))
         else:
             show(x[i], scale=1, show_output = show_samples, name=path)
 
@@ -116,7 +116,10 @@ def run_batch_inference(model, beta_set, text, style, tokenizer=None, time_steps
     for i, token in enumerate(text_org):
         print(i, token)'''
 
-    return x.numpy()
+    if return_image:
+        return images
+    else:
+        return x.numpy()
     
 def pad_stroke_seq(x, maxlength):
     if len(x) > maxlength or np.amax(np.abs(x)) > 15: return None
@@ -212,3 +215,19 @@ class CrohmeTokenizer:
     
     def encode(self, tokens):
         return [self.vocab[t] if t in self.vocab.keys() else 0 for t in tokens] + [1]
+
+# calculate frechet inception distance
+def calculate_fid(act1, act2):
+	# calculate mean and covariance statistics
+	mu1, sigma1 = act1.mean(axis=0), cov(act1, rowvar=False)
+	mu2, sigma2 = act2.mean(axis=0), cov(act2, rowvar=False)
+	# calculate sum squared difference between means
+	ssdiff = numpy.sum((mu1 - mu2)**2.0)
+	# calculate sqrt of product between cov
+	covmean = sqrtm(sigma1.dot(sigma2))
+	# check and correct imaginary numbers from sqrt
+	if iscomplexobj(covmean):
+		covmean = covmean.real
+	# calculate score
+	fid = ssdiff + trace(sigma1 + sigma2 - 2.0 * covmean)
+	return fid
