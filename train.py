@@ -94,7 +94,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
             # perform n inference steps
             generated_images = []
             BATCH_SIZE = 96
-            for i in range(10):
+            for i in range(3):
                 print('val_model: ', val_model)
 
                 #select random text from dataset
@@ -134,7 +134,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
             print("images1.shape, images2.shape: ", images1.shape, images2.shape)
             fid_score = calculate_fid(val_model, images1, images2)
             with train_summary_writer.as_default():
-                tf.summary.scalar('fid_score', fid_score.result(), step=optimizer.iterations)
+                tf.summary.scalar('fid_score', fid_score, step=optimizer.iterations)
 
             print("fid_score: ", fid_score)
 
