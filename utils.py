@@ -140,7 +140,8 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height, trai
         ds = pickle.load(f)
         
     strokes, texts, samples = [], [], []
-    for x, text, sample in ds:
+    unpadded = []
+    for x, text, sample in ds[200:]:
         if len(text) < max_text_len:
             x = pad_stroke_seq(x, maxlength=max_seq_len)
             zeros_text = np.zeros((max_text_len-len(text), ))
@@ -154,13 +155,14 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height, trai
                 #tf.summary.image("Training data {}".format(randrange(999)), [sample.astype(np.uint8)], step=0)'''
 
             if x is not None and sample.shape[1] < img_width: 
+                unpadded.append(sample)
                 sample = pad_img(sample, img_width, img_height)
                 strokes.append(x)
                 texts.append(text)
                 samples.append(sample)
     texts = np.array(texts).astype('int32')
     samples = np.array(samples)
-    return strokes, texts, samples
+    return strokes, texts, samples, unpadded
     
 def create_dataset(strokes, texts, samples, style_extractor, batch_size, buffer_size):    
     #we DO NOT SHUFFLE here, because we will shuffle later
