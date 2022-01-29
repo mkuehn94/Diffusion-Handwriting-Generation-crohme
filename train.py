@@ -93,7 +93,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
 
             # perform n inference steps
             generated_images = []
-            BATCH_SIZE = 96
+            BATCH_SIZE = 8
             for i in range(3):
                 print('val_model: ', val_model)
 
@@ -135,6 +135,8 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
             fid_score = calculate_fid(val_model, images1, images2)
             with train_summary_writer.as_default():
                 tf.summary.scalar('fid_score', fid_score, step=optimizer.iterations)
+                tf.summary.image("images1 {}".format(i), tf.expand_dims(images1[1], axis=0), step=optimizer.iterations)
+                tf.summary.image("images2 {}".format(i), tf.expand_dims(images2[1], axis=0), step=optimizer.iterations)
 
             print("fid_score: ", fid_score)
 
@@ -191,10 +193,10 @@ def main():
     optimizer = tf.keras.optimizers.Adam(lr, beta_1=0.9, beta_2=0.98, clipnorm=100)
     
     path = './data/crohme_strokes.p'
-    strokes, texts, samples = utils.preprocess_data(path, MAX_TEXT_LEN, MAX_SEQ_LEN, WIDTH, 96, train_summary_writer)
+    strokes, texts, samples, unpadded = utils.preprocess_data(path, MAX_TEXT_LEN, MAX_SEQ_LEN, WIDTH, 96, train_summary_writer)
     dataset, style_vectors = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
 
-    val_dataset = {'texts': texts, 'samples': samples, 'style_vectors': style_vectors}
+    val_dataset = {'texts': texts, 'samples': unpadded, 'style_vectors': style_vectors}
     train(dataset, NUM_STEPS, model, optimizer, alpha_set, PRINT_EVERY, SAVE_EVERY, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset)
 
 if __name__ == '__main__':
