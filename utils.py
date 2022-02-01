@@ -141,7 +141,7 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height, trai
         
     strokes, texts, samples = [], [], []
     unpadded = []
-    for x, text, sample in ds[200:]:
+    for x, text, sample in ds:
         if len(text) < max_text_len:
             x = pad_stroke_seq(x, maxlength=max_seq_len)
             zeros_text = np.zeros((max_text_len-len(text), ))

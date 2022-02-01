@@ -93,7 +93,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
 
             # perform n inference steps
             generated_images = []
-            BATCH_SIZE = 8
+            BATCH_SIZE = 96
             for i in range(3):
                 print('val_model: ', val_model)
 
@@ -129,14 +129,15 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
                 #print(img.shape)
 
             images1 = scale_images(generated_images, (299,299,3))
+
             images2 = scale_images(val_dataset['samples'], (299,299,3))
             
-            print("images1.shape, images2.shape: ", images1.shape, images2.shape)
-            fid_score = calculate_fid(val_model, images1, images2)
+            sub_dataset = np.random.choice(np.array_split(images2, 10))
+            fid_score = calculate_fid(val_model, images1, sub_dataset)
             with train_summary_writer.as_default():
                 tf.summary.scalar('fid_score', fid_score, step=optimizer.iterations)
                 tf.summary.image("images1 {}".format(i), tf.expand_dims(images1[1], axis=0), step=optimizer.iterations)
-                tf.summary.image("images2 {}".format(i), tf.expand_dims(images2[1], axis=0), step=optimizer.iterations)
+                tf.summary.image("images2 {}".format(i), tf.expand_dims(sub_dataset[1], axis=0), step=optimizer.iterations)
 
             print("fid_score: ", fid_score)
 
