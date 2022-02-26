@@ -233,3 +233,25 @@ def calculate_fid(act1, act2):
 	# calculate score
 	fid = ssdiff + trace(sigma1 + sigma2 - 2.0 * covmean)
 	return fid
+
+def bttr_mapping(mode='diff_to_bttr'):
+    from BTTRcustom.bttr.datamodule.vocab import CROHMEVocab
+
+    mapping = CROHMEVocab().word2idx
+    mapping2 = CrohmeTokenizer().vocab
+    bttr_keys = mapping.keys()
+    diff_keys = mapping2.keys()
+    
+    if mode == 'bttr_to_diff':
+        bttr_to_diff = {}
+        for bttr_key in bttr_keys:
+            if bttr_key in diff_keys:
+                #print('{} => {}'.format(mapping[bttr_key], mapping2[bttr_key]))
+                bttr_to_diff[mapping[bttr_key]] = mapping2[bttr_key]
+        return bttr_to_diff
+    elif mode == 'diff_to_bttr':
+        diff_to_bttr = {}
+        for diff_key in diff_keys:
+            if diff_key in bttr_keys:
+                diff_to_bttr[mapping2[diff_key]] = mapping[diff_key]
+        return diff_to_bttr
