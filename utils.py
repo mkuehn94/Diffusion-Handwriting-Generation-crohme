@@ -7,6 +7,8 @@ import os
 import io
 import json
 
+from BTTRcustom.bttr.datamodule.vocab import CROHMEVocab
+
 #notation clarification:
 #we use the variable "alpha" for alpha_bar (cumprod 1-beta)
 #the alpha in the paper is replaced with 1-beta
@@ -234,9 +236,18 @@ def calculate_fid(act1, act2):
 	fid = ssdiff + trace(sigma1 + sigma2 - 2.0 * covmean)
 	return fid
 
-def bttr_mapping(mode='diff_to_bttr'):
-    from BTTRcustom.bttr.datamodule.vocab import CROHMEVocab
+def get_vocab(mode='diff', reverse=True):
+    d = {}
+    if mode == 'diff':
+        d = CrohmeTokenizer().vocab
+    elif mode == 'bttr':
+        d = CROHMEVocab().word2idx
+    if reverse:
+        return {v: k for k, v in d.items()}
+    else:
+        return d
 
+def bttr_mapping(mode='diff_to_bttr'):
     mapping = CROHMEVocab().word2idx
     mapping2 = CrohmeTokenizer().vocab
     bttr_keys = mapping.keys()
