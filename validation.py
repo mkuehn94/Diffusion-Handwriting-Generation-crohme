@@ -79,8 +79,6 @@ def bttr_beam_search_prob_mean(
     avgs, seqs = [], []
     for (img, text) in zip(images, gen_texts):
         img = cut_off_white(img)
-        print('img.shape')
-        print(img.shape)
         if(img is None or img.shape[0] + img.shape[1] + img.shape[2] <= 3):
             continue
         img = ToTensor()(255 - img)
