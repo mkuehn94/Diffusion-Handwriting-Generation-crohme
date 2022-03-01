@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from torchvision.transforms import ToTensor
 import sys
 
 from utils import bttr_mapping, get_vocab
@@ -22,7 +23,9 @@ def bttr_beam_search_prob(
     Returns:
         float: _description_
     """
-
+    if(type(image) == np.ndarray):
+        image = ToTensor()(image)
+    print(image.shape)
     logits = bttr_model.beam_search_logits(image)
 
     diff_vocab = get_vocab('diff')
@@ -31,6 +34,7 @@ def bttr_beam_search_prob(
     if(verbose):
         hyp = bttr_model.beam_search(image)
         print(hyp)
+        print(diff_vocab)
         print(' '.join([diff_vocab[token] for token in gen_text]))
         print(gen_text)
     
@@ -40,18 +44,31 @@ def bttr_beam_search_prob(
         if token in diff_to_bttr.keys():
             if verbose:
                 print('{} -> {} | [{}] -> [{}]'.format(token, diff_to_bttr[token], diff_vocab[token], bttr_vocab[diff_to_bttr[token]]))
-            #print('{} => {}'.format()
-            #print(torch.max(logits[i]))
-            #print(torch.argmax(logits[i]))
-            #print(logits[i, diff_to_bttr[token]].item())
             preds.append(logits[i, diff_to_bttr[token]].item())
             i += 1
         else:
             if verbose:
                 print('unknown token: {}'.format(token))
 
+    if verbose:
+        print(preds)
     avg = (sum(preds) / len(preds))
-    seq = np.prod(preds)
+    seq = np.sum(np.log(preds))
     return (avg, seq)
+
+def bttr_beam_search_prob_mean(
+    gen_texts: list, images: list, bttr_model: LitBTTR
+    )-> float:
+    avgs, seqs = [], []
+    for (img, text) in zip(images, gen_texts):
+        img = ToTensor()(255 - img[0])
+        #img = img[0, :, :]
+        #img = torch.unsqueeze(img, 0)
+        print('img.shape, text.shape')
+        print(img.shape, text.shape)
+        (avg, seq) = bttr_beam_search_prob(text, img, bttr_model)
+        avgs.append(avg)
+        seqs.append(seq)
+    return ((sum(avgs)/len(avgs)), (sum(seqs)/len(seqs)) )
     
     

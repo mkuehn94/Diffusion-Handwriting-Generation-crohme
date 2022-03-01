@@ -1,4 +1,5 @@
 import tensorflow as tf
+import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import utils
@@ -10,6 +11,13 @@ import scipy
 from tensorflow.keras.applications.inception_v3 import InceptionV3
 import skimage
 import skimage.transform
+
+from validation import bttr_beam_search_prob
+from validation import bttr_beam_search_prob_mean
+
+import sys
+sys.path.append("./BTTRcustom/")
+from bttr.lit_bttr import LitBTTR
 
 @tf.function
 def train_step(x, pen_lifts, text, style_vectors, glob_args):
@@ -58,6 +66,8 @@ def calculate_fid(model, images1, images2):
 	return fid
 
 val_model = InceptionV3()
+ckpt = './BTTRcustom/checkpoints/pretrained-2014.ckpt'
+lit_model = LitBTTR.load_from_checkpoint(ckpt)
 def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, save_every=10000, train_summary_writer = None, val_every = None, val_dataset = None):
     s = time.time()
     bce = tf.keras.losses.BinaryCrossentropy(from_logits=False)
@@ -93,8 +103,8 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
 
             # perform n inference steps
             generated_images = []
-            BATCH_SIZE = 96
-            for i in range(3):
+            BATCH_SIZE = 32
+            for i in range(1):
                 print('val_model: ', val_model)
 
                 #select random text from dataset
@@ -112,8 +122,6 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
                 _style_vector = tf.random.normal([1, 14, 1280])
                 _ = model(_stroke, _text, _noise, _style_vector)
 
-                #print('text.shape: ', text.shape)
-                #print('style.shape: ', style.shape)
                 imgs = utils.run_batch_inference(model, beta_set, text, style, tokenizer = utils.CrohmeTokenizer(), 
                                             time_steps=timesteps, diffusion_mode='new', 
                                             show_samples=False, path=None, show_every=None, return_image=True)
@@ -132,14 +140,22 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
 
             images2 = scale_images(val_dataset['samples'], (299,299,3))
             
-            sub_dataset = np.random.choice(np.array_split(images2, 10))
+            sub_dataset = np.random.choice(np.array_split(images2, 10))[:-1]
             fid_score = calculate_fid(val_model, images1, sub_dataset)
+            print("fid_score: ", fid_score)
+            (avg, seq) = bttr_beam_search_prob_mean(text, imgs, lit_model)
+            print("avg: ", avg)
+            print("seq: ", seq)
             with train_summary_writer.as_default():
+                
                 tf.summary.scalar('fid_score', fid_score, step=optimizer.iterations)
+                tf.summary.scalar('avg bbtr pred', avg, step=optimizer.iterations)
+                if(seq != float("-inf")):
+                    tf.summary.scalar('seq bbtr pred', seq, step=optimizer.iterations)
                 tf.summary.image("images1 {}".format(i), tf.expand_dims(images1[1], axis=0), step=optimizer.iterations)
                 tf.summary.image("images2 {}".format(i), tf.expand_dims(sub_dataset[1], axis=0), step=optimizer.iterations)
 
-            print("fid_score: ", fid_score)
+            
 
 def main():
     parser = argparse.ArgumentParser()    
