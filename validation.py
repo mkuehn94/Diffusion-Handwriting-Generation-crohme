@@ -63,6 +63,8 @@ def cut_off_white(img):
     pixels = np.where(img<255)
     bounds = []
     for p in pixels:
+        if len(p) == 0:
+            return None
         bounds.append(max(p) + 1)
     if 0 in bounds:
         return None
