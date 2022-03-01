@@ -103,6 +103,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
 
             # perform n inference steps
             generated_images = []
+            generated_texts = []
             BATCH_SIZE = 32
             for i in range(1):
                 print('val_model: ', val_model)
@@ -128,6 +129,8 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
 
                 for img in imgs:
                     generated_images.append(img)
+                for text in text:
+                    generated_texts.append(text)
                 
                 with train_summary_writer.as_default():
                     #print(tf.expand_dims(img, axis=0).shape)
@@ -136,6 +139,10 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
                     tf.summary.image("val_inference {}".format(i), tf.expand_dims(imgs[1], axis=0), step=optimizer.iterations)
                 #print(img.shape)
 
+            (avg, seq) = bttr_beam_search_prob_mean(generated_texts, generated_images, lit_model)
+            print("avg: ", avg)
+            print("seq: ", seq)
+
             images1 = scale_images(generated_images, (299,299,3))
 
             images2 = scale_images(val_dataset['samples'], (299,299,3))
@@ -143,9 +150,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
             sub_dataset = np.random.choice(np.array_split(images2, 10))[:-1]
             fid_score = calculate_fid(val_model, images1, sub_dataset)
             print("fid_score: ", fid_score)
-            (avg, seq) = bttr_beam_search_prob_mean(text, imgs, lit_model)
-            print("avg: ", avg)
-            print("seq: ", seq)
+            
             with train_summary_writer.as_default():
                 
                 tf.summary.scalar('fid_score', fid_score, step=optimizer.iterations)

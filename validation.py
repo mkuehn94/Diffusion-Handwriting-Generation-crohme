@@ -53,6 +53,9 @@ def bttr_beam_search_prob(
     if verbose:
         print(preds)
     avg = (sum(preds) / len(preds))
+
+    # avoid log of 0
+    preds = [p + 1e-8 for p in preds]
     seq = np.sum(np.log(preds))
     return (avg, seq)
 
@@ -63,9 +66,9 @@ def bttr_beam_search_prob_mean(
     for (img, text) in zip(images, gen_texts):
         if(img.shape[0] + img.shape[1] <= 2):
             continue
-        img = ToTensor()(255 - img[0])
-        #img = img[0, :, :]
-        #img = torch.unsqueeze(img, 0)
+        img = ToTensor()(255 - img)
+        img = img[0, :, :]
+        img = torch.unsqueeze(img, 0)
         print('img.shape, text.shape')
         print(img.shape, text.shape)
         (avg, seq) = bttr_beam_search_prob(text, img, bttr_model)
