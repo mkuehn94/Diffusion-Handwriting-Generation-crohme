@@ -61,8 +61,6 @@ def bttr_beam_search_prob_mean(
     )-> float:
     avgs, seqs = [], []
     for (img, text) in zip(images, gen_texts):
-        print('img.shape')
-        print(img.shape)
         if(img.shape[0] + img.shape[1] <= 2):
             continue
         img = ToTensor()(255 - img[0])
