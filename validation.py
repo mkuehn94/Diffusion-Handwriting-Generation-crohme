@@ -52,6 +52,9 @@ def bttr_beam_search_prob(
 
     if verbose:
         print(preds)
+
+    if len(preds)==0:
+        return(0, -100)
     avg = (sum(preds) / len(preds))
 
     # avoid log of 0
