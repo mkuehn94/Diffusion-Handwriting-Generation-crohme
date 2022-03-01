@@ -59,12 +59,24 @@ def bttr_beam_search_prob(
     seq = np.sum(np.log(preds))
     return (avg, seq)
 
+def cut_off_white(img):
+    pixels = np.where(img<255)
+    bounds = []
+    for p in pixels:
+        bounds.append(max(p) + 1)
+    if 0 in bounds:
+        return None
+    return img[:bounds[0], :bounds[1], :bounds[2]]
+
 def bttr_beam_search_prob_mean(
     gen_texts: list, images: list, bttr_model: LitBTTR
     )-> float:
     avgs, seqs = [], []
     for (img, text) in zip(images, gen_texts):
-        if(img.shape[0] + img.shape[1] <= 2):
+        img = cut_off_white(img)
+        print('img.shape')
+        print(img.shape)
+        if(img is None or img.shape[0] + img.shape[1] + img.shape[2] <= 3):
             continue
         img = ToTensor()(255 - img)
         img = img[0, :, :]
