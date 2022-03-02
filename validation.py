@@ -84,11 +84,12 @@ def bttr_beam_search_prob_mean(
         img = ToTensor()(255 - img)
         img = img[0, :, :]
         img = torch.unsqueeze(img, 0)
-        print('img.shape, text.shape')
-        print(img.shape, text.shape)
+
         (avg, seq) = bttr_beam_search_prob(text, img, bttr_model)
         avgs.append(avg)
         seqs.append(seq)
+    if len(avgs)==0 or len(seqs)==0:
+        return(0, -100)
     return ((sum(avgs)/len(avgs)), (sum(seqs)/len(seqs)) )
     
     

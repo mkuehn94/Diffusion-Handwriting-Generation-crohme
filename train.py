@@ -5,15 +5,17 @@ import matplotlib.pyplot as plt
 import utils
 import nn
 import time
+import random
 import argparse
 import datetime
 import scipy
 from tensorflow.keras.applications.inception_v3 import InceptionV3
 import skimage
 import skimage.transform
+from torchvision.transforms import ToTensor
 
 from validation import bttr_beam_search_prob
-from validation import bttr_beam_search_prob_mean
+from validation import bttr_beam_search_prob_mean, cut_off_white
 
 import sys
 sys.path.append("./BTTRcustom/")
@@ -142,6 +144,19 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
             (avg, seq) = bttr_beam_search_prob_mean(generated_texts, generated_images, lit_model)
             print("avg: ", avg)
             print("seq: ", seq)
+            #log random image and its prediction
+            ind = random.choice(range(len(generated_texts)))
+            (text, img) = (generated_texts[ind], generated_images[ind])
+            img = cut_off_white(img)
+            if not (img is None or img.shape[0] + img.shape[1] + img.shape[2] <= 3):
+                tf.summary.image("val_img_gen", tf.expand_dims(img, axis=0), step=optimizer.iterations)
+                
+                img = ToTensor()(255 - img)
+                img = img[0, :, :]
+                img = torch.unsqueeze(img, 0)
+
+                hyp = lit_model.beam_search(img)
+                tf.summary.text("val_img_pred", str(hyp))
 
             images1 = scale_images(generated_images, (299,299,3))
 
