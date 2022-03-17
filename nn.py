@@ -205,12 +205,12 @@ class DecoderLayer(Layer):
         return out, att
 
 class Text_Style_Encoder(Model):
-    def __init__(self, d_model, d_ff=512):
+    def __init__(self, d_model, d_ff=512, num_heads=8):
         super().__init__()
         self.emb = Embedding(77, d_model)
         self.text_conv = Conv1D(d_model, 3, padding='same')
         self.style_ffn = ff_network(d_model, d_ff)
-        self.mha = MultiHeadAttention(d_model, 8)
+        self.mha = MultiHeadAttention(d_model, num_heads)
         self.layernorm = LayerNormalization(epsilon=1e-6, trainable=False)
         self.dropout = Dropout(0.3)
         self.affine1 = AffineTransformLayer(d_model)
@@ -245,7 +245,7 @@ class DiffusionWriter(Model):
         self.skip_conv1 = Conv1D(c2, 3, padding='same')
         self.skip_conv2 = Conv1D(c3, 3, padding='same')
         self.skip_conv3 = Conv1D(c2*2, 3, padding='same')
-        self.text_style_encoder = Text_Style_Encoder(c2*2, c2*4)
+        self.text_style_encoder = Text_Style_Encoder(c2*2, c2*4, num_heads)
         self.att_dense = Dense(c2*2)
         self.att_layers = [DecoderLayer(c2*2, 6, drop_rate) 
                      for i in range(num_layers)]

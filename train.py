@@ -192,6 +192,7 @@ def main():
     parser.add_argument('--save_every', help='save ckpt every n iters', default=10000, type=int)
     parser.add_argument('--tb_prefix', help='prefix for tensorboard logs', default=None, type=str)
     parser.add_argument('--val_every', help='how often to perform validation', default=None, type=int)
+    parser.add_argument('--num_heads', help='number of attention heads for encoder', default=None, type=int)
 
     args = parser.parse_args()
     TB_PREFIX = args.tb_prefix
@@ -206,6 +207,7 @@ def main():
     PRINT_EVERY = args.print_every
     SAVE_EVERY = args.save_every
     VAL_EVERY = args.val_every
+    ENCODER_NUM_HEADS = args.num_heads
     C1 = args.channels
     C2 = C1 * 3//2
     C3 = C1 * 2
@@ -225,7 +227,7 @@ def main():
     alpha_set = tf.math.cumprod(1-beta_set)
 
     style_extractor = nn.StyleExtractor()
-    model = nn.DiffusionWriter(num_layers=NUM_ATTLAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE)
+    model = nn.DiffusionWriter(num_layers=NUM_ATTLAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE, num_heads=ENCODER_NUM_HEADS)
     lr = nn.InvSqrtSchedule(C3, warmup_steps=WARMUP_STEPS)
     optimizer = tf.keras.optimizers.Adam(lr, beta_1=0.9, beta_2=0.98, clipnorm=100)
     
