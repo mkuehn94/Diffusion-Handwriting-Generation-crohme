@@ -26,7 +26,7 @@ def bttr_beam_search_prob(
     if(type(image) == np.ndarray):
         image = ToTensor()(image)
     print(image.shape)
-    logits = bttr_model.beam_search_logits(image)
+    logits = bttr_model.beam_search_logits(image).detach()
 
     diff_vocab = get_vocab('diff')
     bttr_vocab = get_vocab('bttr')
