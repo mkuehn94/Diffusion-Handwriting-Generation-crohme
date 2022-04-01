@@ -190,6 +190,7 @@ def main():
     parser.add_argument('--channels', help='number of channels in first layer, default 128', default=128, type=int)
     parser.add_argument('--print_every', help='show train loss every n iters', default=1000, type=int)
     parser.add_argument('--save_every', help='save ckpt every n iters', default=10000, type=int)
+    parser.add_argument('--diffusion_steps', help='number of diffusion steps', default=60, type=int)
     parser.add_argument('--tb_prefix', help='prefix for tensorboard logs', default=None, type=str)
     parser.add_argument('--val_every', help='how often to perform validation', default=None, type=int)
     parser.add_argument('--num_heads', help='number of attention heads for encoder', default=None, type=int)
@@ -206,6 +207,7 @@ def main():
     WARMUP_STEPS = args.warmup
     PRINT_EVERY = args.print_every
     SAVE_EVERY = args.save_every
+    DIFF_STEPS = args.diffusion_steps
     VAL_EVERY = args.val_every
     ENCODER_NUM_HEADS = args.num_heads
     C1 = args.channels
@@ -221,7 +223,7 @@ def main():
     train_summary_writer = tf.summary.create_file_writer(train_log_dir)
 
     BUFFER_SIZE = 3000
-    L = 60
+    L = DIFF_STEPS
     tokenizer = utils.Tokenizer()
     beta_set = utils.get_beta_set()
     alpha_set = tf.math.cumprod(1-beta_set)
