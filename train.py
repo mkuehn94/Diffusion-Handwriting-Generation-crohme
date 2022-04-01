@@ -193,7 +193,7 @@ def main():
     parser.add_argument('--diffusion_steps', help='number of diffusion steps', default=60, type=int)
     parser.add_argument('--tb_prefix', help='prefix for tensorboard logs', default=None, type=str)
     parser.add_argument('--val_every', help='how often to perform validation', default=None, type=int)
-    parser.add_argument('--num_heads', help='number of attention heads for encoder', default=None, type=int)
+    parser.add_argument('--num_heads', help='number of attention heads for encoder', default=8, type=int)
 
     args = parser.parse_args()
     TB_PREFIX = args.tb_prefix
