@@ -70,7 +70,8 @@ def calculate_fid(model, images1, images2):
 val_model = InceptionV3()
 ckpt = './BTTRcustom/checkpoints/pretrained-2014.ckpt'
 lit_model = LitBTTR.load_from_checkpoint(ckpt)
-def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, save_every=10000, train_summary_writer = None, val_every = None, val_dataset = None):
+def train(dataset, iterations, model, optimizer, alpha_set, DIFF_STEPS, print_every=1000, save_every=10000, train_summary_writer = None, val_every = None, val_dataset = None):
+    assert DIFF_STEPS == len(alpha_set)
     s = time.time()
     bce = tf.keras.losses.BinaryCrossentropy(from_logits=False)
     train_loss = tf.keras.metrics.Mean()
@@ -101,7 +102,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, print_every=1000, sa
             indices = indices[0]
             np.random.shuffle(indices)
 
-            beta_set = utils.get_beta_set()
+            beta_set = utils.get_beta_set(DIFF_STEPS)
 
             # perform n inference steps
             generated_images = []
@@ -225,7 +226,7 @@ def main():
     BUFFER_SIZE = 3000
     L = DIFF_STEPS
     tokenizer = utils.Tokenizer()
-    beta_set = utils.get_beta_set()
+    beta_set = utils.get_beta_set(DIFF_STEPS)
     alpha_set = tf.math.cumprod(1-beta_set)
 
     style_extractor = nn.StyleExtractor()
@@ -238,7 +239,7 @@ def main():
     dataset, style_vectors = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
 
     val_dataset = {'texts': texts, 'samples': unpadded, 'style_vectors': style_vectors}
-    train(dataset, NUM_STEPS, model, optimizer, alpha_set, PRINT_EVERY, SAVE_EVERY, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset)
+    train(dataset, NUM_STEPS, model, optimizer, alpha_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset)
 
 if __name__ == '__main__':
     main()

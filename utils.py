@@ -15,8 +15,8 @@ from BTTRcustom.bttr.datamodule.vocab import CROHMEVocab
 def explin(min, max, L):
     return tf.exp(tf.linspace(tf.math.log(min), tf.math.log(max), L))
 
-def get_beta_set():
-    beta_set = 0.02 + explin(1e-5, 0.4, 60)
+def get_beta_set(L):
+    beta_set = 0.02 + explin(1e-5, 0.4, L)
     return beta_set
     
 def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, return_image=False):
