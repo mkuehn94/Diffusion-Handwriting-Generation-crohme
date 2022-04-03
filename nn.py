@@ -226,8 +226,11 @@ class Text_Style_Encoder(Model):
         style = self.affine1(self.layernorm(self.style_ffn(style)), sigma)
         text = self.emb(text)
         text = self.affine2(self.layernorm(text), sigma)
-        for mha in self.mha:
-            mha_out, _ = mha(text, style, style)
+        for j, mha in enumerate(self.mha):
+            if j == 0:
+                mha_out, _ = mha(text, style, style)
+            else:
+                mha_out, _ = mha(mha_out, style, style)
         text = self.affine3(self.layernorm(text + mha_out), sigma)
         text_out = self.affine4(self.layernorm(self.text_ffn(text)), sigma)
         return text_out
