@@ -205,12 +205,14 @@ class DecoderLayer(Layer):
         return out, att
 
 class Text_Style_Encoder(Model):
-    def __init__(self, d_model, d_ff=512, num_heads=8):
+    def __init__(self, d_model, d_ff=512, num_heads=8, num_att_layers=1):
         super().__init__()
         self.emb = Embedding(77, d_model)
         self.text_conv = Conv1D(d_model, 3, padding='same')
         self.style_ffn = ff_network(d_model, d_ff)
-        self.mha = MultiHeadAttention(d_model, num_heads)
+        self.mha = []
+        for i in range(num_att_layers):
+            self.mha.append(MultiHeadAttention(d_model, num_heads))
         self.layernorm = LayerNormalization(epsilon=1e-6, trainable=False)
         self.dropout = Dropout(0.3)
         self.affine1 = AffineTransformLayer(d_model)
@@ -224,13 +226,14 @@ class Text_Style_Encoder(Model):
         style = self.affine1(self.layernorm(self.style_ffn(style)), sigma)
         text = self.emb(text)
         text = self.affine2(self.layernorm(text), sigma)
-        mha_out, _ = self.mha(text, style, style)
+        for mha in self.mha:
+            mha_out, _ = mha(text, style, style)
         text = self.affine3(self.layernorm(text + mha_out), sigma)
         text_out = self.affine4(self.layernorm(self.text_ffn(text)), sigma)
         return text_out
 
 class DiffusionWriter(Model):
-    def __init__(self, num_layers=4, c1=128, c2=192, c3=256, drop_rate=0.1, num_heads=8):
+    def __init__(self, num_layers=4, c1=128, c2=192, c3=256, drop_rate=0.1, num_heads=8, encoder_att_layers=1):
         super().__init__()
         self.input_dense = Dense(c1)
         self.sigma_ffn = ff_network(c1//4, 2048)
@@ -245,7 +248,7 @@ class DiffusionWriter(Model):
         self.skip_conv1 = Conv1D(c2, 3, padding='same')
         self.skip_conv2 = Conv1D(c3, 3, padding='same')
         self.skip_conv3 = Conv1D(c2*2, 3, padding='same')
-        self.text_style_encoder = Text_Style_Encoder(c2*2, c2*4, num_heads)
+        self.text_style_encoder = Text_Style_Encoder(c2*2, c2*4, num_heads, encoder_att_layers)
         self.att_dense = Dense(c2*2)
         self.att_layers = [DecoderLayer(c2*2, 6, drop_rate) 
                      for i in range(num_layers)]
