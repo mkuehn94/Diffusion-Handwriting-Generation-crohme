@@ -6,6 +6,7 @@ import pickle
 import os
 import io
 import json
+import math
 
 from BTTRcustom.bttr.datamodule.vocab import CROHMEVocab
 
@@ -18,6 +19,30 @@ def explin(min, max, L):
 def get_beta_set(L):
     beta_set = 0.02 + explin(1e-5, 0.4, L)
     return beta_set
+
+s = 0.008
+
+def cosine_f(t, T):
+    c = math.cos((((t/T + s) / (1 + s)) * (math.pi/2)))
+    return c * c
+
+def cosine_alpha(t, T):
+    return (cosine_f(t, T)/cosine_f(0, T))
+
+def cosine_beta(t, T):
+    return 1 - (cosine_alpha(t, T) / (cosine_alpha(t-1, T)))
+
+def get_cosine_beta_set(L):
+    beta_set_consine = []
+    for i in range(L):
+        beta_set_consine.append(cosine_beta(i, 60))
+    return tf.convert_to_tensor(beta_set_consine, dtype=tf.float32)
+
+def get_cosine_alpha_set(L):
+    alpha_set_consine = []
+    for i in range(L):
+        alpha_set_consine.append(cosine_alpha(i, 60))
+    return tf.convert_to_tensor(alpha_set_consine, dtype=tf.float32)
     
 def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, return_image=False):
     positions = np.cumsum(strokes, axis=0).T[:2]
@@ -68,7 +93,7 @@ def new_diffusion_step(xt, eps, beta, alpha, alpha_next):
     x_t_minus1 += tf.random.normal(xt.shape) * tf.sqrt(1-alpha_next)
     return x_t_minus1
     
-def run_batch_inference(model, beta_set, text, style, tokenizer=None, time_steps=480, diffusion_mode='new', show_every=None, show_samples=True, path=None, return_image=False):
+def run_batch_inference(model, beta_set, alpha_set, text, style, tokenizer=None, time_steps=480, diffusion_mode='new', show_every=None, show_samples=True, path=None, return_image=False):
     if isinstance(text, str):
         text = tf.constant([tokenizer.encode(text)+[1]])
     elif isinstance(text, list) and isinstance(text[0], str):
@@ -83,7 +108,7 @@ def run_batch_inference(model, beta_set, text, style, tokenizer=None, time_steps
         text = tf.expand_dims(text, axis=0)
     bs = text.shape[0]
     L = len(beta_set)
-    alpha_set = tf.math.cumprod(1- beta_set)
+    #alpha_set = tf.math.cumprod(1- beta_set)
     x = tf.random.normal([bs, time_steps, 2])
     
     # reverse iteration L, L-1, L-2, ... 0
@@ -109,7 +134,8 @@ def run_batch_inference(model, beta_set, text, style, tokenizer=None, time_steps
     images = []
     for i in range(bs):
         if return_image:
-            images.append(show(x[i], scale=1, show_output = show_samples, name=path, return_image=True))
+            img = show(x[i], scale=1, show_output = show_samples, name=path, return_image=True)
+            images.append(img)
         else:
             show(x[i], scale=1, show_output = show_samples, name=path)
 

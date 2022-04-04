@@ -70,8 +70,8 @@ def calculate_fid(model, images1, images2):
 val_model = InceptionV3()
 ckpt = './BTTRcustom/checkpoints/pretrained-2014.ckpt'
 lit_model = LitBTTR.load_from_checkpoint(ckpt)
-def train(dataset, iterations, model, optimizer, alpha_set, DIFF_STEPS, print_every=1000, save_every=10000, train_summary_writer = None, val_every = None, val_dataset = None):
-    assert DIFF_STEPS == len(alpha_set)
+def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS, print_every=1000, save_every=10000, train_summary_writer = None, val_every = None, val_dataset = None):
+    assert DIFF_STEPS == len(alpha_set) == len(beta_set)
     s = time.time()
     bce = tf.keras.losses.BinaryCrossentropy(from_logits=False)
     train_loss = tf.keras.metrics.Mean()
@@ -102,7 +102,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, DIFF_STEPS, print_ev
             indices = indices[0]
             np.random.shuffle(indices)
 
-            beta_set = utils.get_beta_set(DIFF_STEPS)
+            #beta_set = utils.get_beta_set(DIFF_STEPS)
 
             # perform n inference steps
             generated_images = []
@@ -126,7 +126,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, DIFF_STEPS, print_ev
                 _style_vector = tf.random.normal([1, 14, 1280])
                 _ = model(_stroke, _text, _noise, _style_vector)
 
-                imgs = utils.run_batch_inference(model, beta_set, text, style, tokenizer = utils.CrohmeTokenizer(), 
+                imgs = utils.run_batch_inference(model, beta_set, alpha_set, text, style, tokenizer = utils.CrohmeTokenizer(), 
                                             time_steps=timesteps, diffusion_mode='new', 
                                             show_samples=False, path=None, show_every=None, return_image=True)
 
@@ -196,6 +196,7 @@ def main():
     parser.add_argument('--val_every', help='how often to perform validation', default=None, type=int)
     parser.add_argument('--num_heads', help='number of attention heads for encoder', default=8, type=int)
     parser.add_argument('--enc_att_layers', help='number of attention layers for encoder', default=1, type=int)
+    parser.add_argument('--noise_shedule', help='specifies which noise shedule to use (default or cosine)', default='default', type=str)
 
     args = parser.parse_args()
     TB_PREFIX = args.tb_prefix
@@ -207,12 +208,14 @@ def main():
     DROP_RATE = args.dropout
     NUM_ATTLAYERS = args.num_attlayers
     WARMUP_STEPS = args.warmup
-    PRINT_EVERY = args.print_every
+    PRINT_EVERY = 1#args.print_every
     SAVE_EVERY = args.save_every
     DIFF_STEPS = args.diffusion_steps
-    VAL_EVERY = args.val_every
+    VAL_EVERY = 3#args.val_every
     ENCODER_NUM_HEADS = args.num_heads
     ENCODER_NUM_ATTLAYERS = args.enc_att_layers
+    NOISE_SHEDULE = 'cosine'#args.noise_shedule
+    assert NOISE_SHEDULE in ['default', 'cosine']
     C1 = args.channels
     C2 = C1 * 3//2
     C3 = C1 * 2
@@ -228,8 +231,12 @@ def main():
     BUFFER_SIZE = 3000
     L = DIFF_STEPS
     tokenizer = utils.Tokenizer()
-    beta_set = utils.get_beta_set(DIFF_STEPS)
-    alpha_set = tf.math.cumprod(1-beta_set)
+    if NOISE_SHEDULE == 'cosine':
+        beta_set = utils.get_cosine_beta_set(DIFF_STEPS)
+        alpha_set = utils.get_cosine_alpha_set(DIFF_STEPS)
+    elif(NOISE_SHEDULE == 'default'):
+        beta_set = utils.get_beta_set(DIFF_STEPS)
+        alpha_set = tf.math.cumprod(1-beta_set)
 
     style_extractor = nn.StyleExtractor()
     model = nn.DiffusionWriter(num_layers=NUM_ATTLAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE, num_heads=ENCODER_NUM_HEADS, encoder_att_layers=ENCODER_NUM_ATTLAYERS)
@@ -241,7 +248,7 @@ def main():
     dataset, style_vectors = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
 
     val_dataset = {'texts': texts, 'samples': unpadded, 'style_vectors': style_vectors}
-    train(dataset, NUM_STEPS, model, optimizer, alpha_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset)
+    train(dataset, NUM_STEPS, model, optimizer, alpha_set, beta_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset)
 
 if __name__ == '__main__':
     main()
