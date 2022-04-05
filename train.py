@@ -208,13 +208,13 @@ def main():
     DROP_RATE = args.dropout
     NUM_ATTLAYERS = args.num_attlayers
     WARMUP_STEPS = args.warmup
-    PRINT_EVERY = 1#args.print_every
+    PRINT_EVERY = args.print_every
     SAVE_EVERY = args.save_every
     DIFF_STEPS = args.diffusion_steps
-    VAL_EVERY = 3#args.val_every
+    VAL_EVERY = args.val_every
     ENCODER_NUM_HEADS = args.num_heads
     ENCODER_NUM_ATTLAYERS = args.enc_att_layers
-    NOISE_SHEDULE = 'cosine'#args.noise_shedule
+    NOISE_SHEDULE = args.noise_shedule
     assert NOISE_SHEDULE in ['default', 'cosine']
     C1 = args.channels
     C2 = C1 * 3//2
