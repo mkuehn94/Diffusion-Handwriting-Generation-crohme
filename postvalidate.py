@@ -3,6 +3,7 @@ import argparse
 import os
 import re
 import time
+import logging
 
 import tensorflow as tf
 import numpy as np
@@ -16,7 +17,18 @@ from bttr.lit_bttr import LitBTTR
 ckpt = './BTTRcustom/checkpoints/pretrained-2014.ckpt'
 lit_model = LitBTTR.load_from_checkpoint(ckpt)
 
+def log(info):
+    logging.info(info)
+    print(info)
+
+
 def main():
+    logging.basicConfig(filename="val.log",
+                                filemode='a',
+                                format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+                                datefmt='%H:%M:%S',
+                                level=logging.DEBUG)
+
     parser = argparse.ArgumentParser()
 
     #args.add_argument('--steps', help='number of trainsteps, default 60k', default=60000, type=int)
@@ -122,9 +134,9 @@ def main():
             img = utils.run_batch_inference(model, beta_set, alpha_set, texts[0], tf.expand_dims(style_vecs[0], axis=0), 
                                     tokenizer=tokenizer, time_steps=timesteps, diffusion_mode='new', 
                                     show_samples=False, path=None, show_every=None, return_image=True)
-            print('{}/{}'.format(i, VAL_NSAMPLES))
+            log('{}/{}'.format(i, VAL_NSAMPLES))
         end = time.time()
-        print('time per sample: {}'.format((end - start) / VAL_NSAMPLES))
+        log('time per sample: {}'.format((end - start) / VAL_NSAMPLES))
         
 
 if __name__ == "__main__":
