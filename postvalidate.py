@@ -36,7 +36,7 @@ def main():
     parser.add_argument('--num_heads', help='number of attention heads for encoder', default=8, type=int)
     parser.add_argument('--enc_att_layers', help='number of attention layers for encoder', default=1, type=int)
     parser.add_argument('--noise_shedule', help='specifies which noise shedule to use (default or cosine)', default='default', type=str)
-    parser.add_argument('--val_nsamples', help='Number of images to generate each iteration', default=320, type=int)
+    parser.add_argument('--val_nsamples', help='Number of images to generate each iteration', default=32, type=int)
 
     args = parser.parse_args()
     #TB_PREFIX = args.tb_prefix
@@ -56,7 +56,6 @@ def main():
     ENCODER_NUM_ATTLAYERS = args.enc_att_layers
     NOISE_SHEDULE = args.noise_shedule
     VAL_NSAMPLES = args.val_nsamples
-    print(lit_model)
 
     C1 = args.channels
     C2 = C1 * 3//2
@@ -81,13 +80,15 @@ def main():
     texts = texts[:VAL_NSAMPLES]
     samples = samples[:VAL_NSAMPLES]
     style_vectors = []
-    samples = tf.data.Dataset.from_tensor_slices(samples).batch(320)
+    #samples = tf.data.Dataset.from_tensor_slices(samples).batch(320)
     for sample in samples:
-        print(sample.shape)
+        sample = tf.expand_dims(sample, axis=0)
+        
         style_vec = style_extractor(sample)
         style_vec = style_vec.numpy()
         style_vectors.append(style_vec)
-    print(style_vec[1].shape)
+    
+    style_vecs = np.concatenate(style_vectors, axis=0)
 
     ordered_weights = {}
     weight_files = []
@@ -118,7 +119,7 @@ def main():
 
             #print('style_vector.shape: ', style_vector.shape)
             #print('style_vec[0].shape: ', style_vec[0].shape)
-            img = utils.run_batch_inference(model, beta_set, alpha_set, texts[0], tf.expand_dims(style_vec[0], axis=0), 
+            img = utils.run_batch_inference(model, beta_set, alpha_set, texts[0], tf.expand_dims(style_vecs[0], axis=0), 
                                     tokenizer=tokenizer, time_steps=timesteps, diffusion_mode='new', 
                                     show_samples=False, path=None, show_every=None, return_image=True)
             print('{}/{}'.format(i, VAL_NSAMPLES))
