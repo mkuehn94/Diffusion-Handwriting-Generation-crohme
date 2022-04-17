@@ -7,10 +7,12 @@ import logging
 
 import tensorflow as tf
 import numpy as np
+import matplotlib.pyplot as plt
 
 import nn
 import utils
 import preprocessing
+from validation import bttr_beam_search_prob_mean, cut_off_white
 
 sys.path.append("./BTTRcustom/")
 from bttr.lit_bttr import LitBTTR
@@ -32,7 +34,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     #args.add_argument('--steps', help='number of trainsteps, default 60k', default=60000, type=int)
-    #args.add_argument('--batchsize', help='default 96', default=96, type=int)
+    parser.add_argument('--batchsize', help='default 80', default=80, type=int)
     #args.add_argument('--seqlen', help='sequence length during training, default 480', default=480, type=int)
     #args.add_argument('--textlen', help='text length during training, default 50', default=50, type=int)
     #args.add_argument('--width', help='offline image width, default 1400', default=1400, type=int)
@@ -48,12 +50,14 @@ def main():
     parser.add_argument('--num_heads', help='number of attention heads for encoder', default=8, type=int)
     parser.add_argument('--enc_att_layers', help='number of attention layers for encoder', default=1, type=int)
     parser.add_argument('--noise_shedule', help='specifies which noise shedule to use (default or cosine)', default='default', type=str)
-    parser.add_argument('--val_nsamples', help='Number of images to generate each iteration', default=32, type=int)
+    parser.add_argument('--val_nsamples', help='Number of images to generate each iteration', default=320, type=int)
+
+    train_summary_writer = tf.summary.create_file_writer("logs/diffusionwriter/test/train")
 
     args = parser.parse_args()
     #TB_PREFIX = args.tb_prefix
     #NUM_STEPS = args.steps
-    #BATCH_SIZE = args.batchsize
+    BATCH_SIZE = args.batchsize
     #MAX_SEQ_LEN = args.seqlen
     #MAX_TEXT_LEN = args.textlen
     #WIDTH = args.width
@@ -69,6 +73,9 @@ def main():
     NOISE_SHEDULE = args.noise_shedule
     VAL_NSAMPLES = args.val_nsamples
 
+    # make sure dividable in batches
+    VAL_NSAMPLES -= (VAL_NSAMPLES % BATCH_SIZE)
+
     C1 = args.channels
     C2 = C1 * 3//2
     C3 = C1 * 2
@@ -76,18 +83,23 @@ def main():
     style_extractor = nn.StyleExtractor()
     model = nn.DiffusionWriter(num_layers=NUM_ATTLAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE, num_heads=ENCODER_NUM_HEADS, encoder_att_layers=ENCODER_NUM_ATTLAYERS)
 
-    _stroke = tf.random.normal([1, 400, 2])
-    _text = tf.random.uniform([1, 40], dtype=tf.int32, maxval=50)
-    _noise = tf.random.uniform([1, 1])
-    _style_vector = tf.random.normal([1, 14, 1280])
+    _stroke = tf.random.normal([32, 400, 2])
+    _text = tf.random.uniform([32, 40], dtype=tf.int32, maxval=50)
+    _noise = tf.random.uniform([32, 1, 1])
+    _style_vector = tf.random.normal([32, 14, 1280])
     _ = model(_stroke, _text, _noise, _style_vector)
 
-    beta_set = utils.get_beta_set(DIFF_STEPS)
-    alpha_set = tf.math.cumprod(1-beta_set)
+    print('using noise shedule: {}'.format(NOISE_SHEDULE))
+    if NOISE_SHEDULE == 'default':
+        beta_set = utils.get_beta_set(DIFF_STEPS)
+        alpha_set = tf.math.cumprod(1-beta_set)
+    elif NOISE_SHEDULE == 'cosine':
+        beta_set = utils.get_cosine_beta_set(DIFF_STEPS)
+        alpha_set = utils.get_cosine_alpha_set(DIFF_STEPS)
     tokenizer = utils.CrohmeTokenizer()
 
     path = './data/crohme_strokes.p'
-    strokes, texts, samples, unpadded = utils.preprocess_data(path, 50, 480, 1400, 96)
+    strokes, texts, samples, unpadded = utils.preprocess_data(path, 15, 480, 1400, 96)
     strokes = strokes[:VAL_NSAMPLES]
     texts = texts[:VAL_NSAMPLES]
     samples = samples[:VAL_NSAMPLES]
@@ -114,30 +126,68 @@ def main():
         ordered_weights[step] = './weights/{}'.format(file)
 
     for k, v in sorted(ordered_weights.items()):
-        weight_files.append(v)
+        weight_files.append([v, k])
     
     writer_img = tf.expand_dims(preprocessing.read_img('./assets/j07-370z-01.tif', 96), 0)
     style_vector = style_extractor(writer_img)
-    for weight_file in weight_files:
-        print(weight_file)
+    for (weight_file, step) in weight_files:
+        
+        # reinit model
+        model = nn.DiffusionWriter(num_layers=NUM_ATTLAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE, num_heads=ENCODER_NUM_HEADS, encoder_att_layers=ENCODER_NUM_ATTLAYERS)
+
+        _stroke = tf.random.normal([32, 400, 2])
+        _text = tf.random.uniform([32, 40], dtype=tf.int32, maxval=50)
+        _noise = tf.random.uniform([32, 1, 1])
+        _style_vector = tf.random.normal([32, 14, 1280])
+        _ = model(_stroke, _text, _noise, _style_vector)
+
         model.load_weights(weight_file)
-        print(model)
         start = time.time()
-        for i, text in enumerate(texts):
-            seq_length = np.count_nonzero(texts[0], axis=0)
+        generated_images = []
+        generated_texts = []
+        for batch_n in range(VAL_NSAMPLES // BATCH_SIZE):
+            batchlb = batch_n * BATCH_SIZE
+            batchup = batch_n * BATCH_SIZE + BATCH_SIZE
+            batch_texts = texts[batchlb:batchup]
+            batch_style = style_vecs[batchlb:batchup]
+            print(batchlb, batchup)
+            print(weight_file)
+            
+            print(model)
+            
+            #for i, text in enumerate(texts):
+            seq_length = np.max(np.count_nonzero(batch_texts, axis=1))
+            print('seq_length: ', seq_length)
             #print('seq_length: ', seq_length)
             timesteps = seq_length * 16
             timesteps = timesteps - (timesteps%8) + 8
 
-            #print('style_vector.shape: ', style_vector.shape)
-            #print('style_vec[0].shape: ', style_vec[0].shape)
-            img = utils.run_batch_inference(model, beta_set, alpha_set, texts[0], tf.expand_dims(style_vecs[0], axis=0), 
+            print('texts.shape: ', texts.shape)
+            print('style_vecs.shape: ', style_vecs.shape)
+            print(alpha_set.shape)
+            print(beta_set.shape)
+            imgs = utils.run_batch_inference(model, beta_set, alpha_set, batch_texts, batch_style, 
                                     tokenizer=tokenizer, time_steps=timesteps, diffusion_mode='new', 
                                     show_samples=False, path=None, show_every=None, return_image=True)
-            log('{}/{}'.format(i, VAL_NSAMPLES))
+            log('{}/{}'.format(batchlb, VAL_NSAMPLES))
+            for (img, text) in zip(imgs, batch_texts):
+                generated_images.append(img)
+                generated_texts.append(text)
+                print(text)
+            if False:
+                for img in imgs:
+                    imgplot = plt.imshow(img)
+                    plt.show()
+        print(len(generated_images))
+        print(len(generated_texts))
+        (avg, seq) = bttr_beam_search_prob_mean(generated_texts, generated_images, lit_model)
+        print("avg: ", avg)
+        print("seq: ", seq)
+        with train_summary_writer.as_default():
+            tf.summary.scalar('avg bbtr pred', avg, step=step)
+
         end = time.time()
         log('time per sample: {}'.format((end - start) / VAL_NSAMPLES))
-        
 
 if __name__ == "__main__":
     main()
