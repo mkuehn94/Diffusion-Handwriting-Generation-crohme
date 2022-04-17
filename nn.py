@@ -32,10 +32,39 @@ def ff_network(C, dff=768, act_before=True):
     if act_before: ff_layers.insert(0, Activation('swish'))
     return Sequential(ff_layers)   
     
-def loss_fn(eps, score_pred, pl, pl_pred, abar, bce):
-    score_loss = tf.reduce_mean(tf.reduce_sum(tf.square(eps - score_pred), axis=-1)) 
+def loss_fn(eps, score_pred, pl, pl_pred, abar, bce, learn_sigma=False, sigma_loss_coef=0.001):
+    score_loss = tf.reduce_mean(tf.reduce_sum(tf.square(eps - score_pred), axis=-1))
     pl_loss = tf.reduce_mean(bce(pl, pl_pred) * tf.squeeze(abar, -1))
     return score_loss + pl_loss
+
+def kl_gaussian(mu1, sigma1, mu2, sigma2):
+    c = tf.log(sigma2/sigma1)
+    a = (sigma1 ** 2 + ((mu1 - mu2) ** 2))
+    b = 2*(sigma2**2)
+    return c + (a / b) - 0.5
+
+import tensorflow_probability as tfp
+tfd = tfp.distributions
+def ce_gaussian(x_0, mean, variance):
+    diff = mean - x_0
+    dist = tfd.Normal(loc=[mean], scale=[variance])
+    lower_bound = dist.cdf([mean - diff])
+    uppder_bound = dist.cdf([mean + diff])
+    logits = 1 - abs(uppder_bound - lower_bound).numpy()
+    print(logits)
+    print(-tf.math.log(logits))
+    return -tf.math.log(logits)
+
+def sigma_los_vb(x_t, x_0, t, alpha_set, beta_set, pred_mean, pred_var):
+    # for t > 0
+    # KL Divergence between two gaussians
+    # compute true mean / variance of diffusion step
+
+    # for t = 0
+    # negtive log likelihood of gaussian & image
+    if(t == 0):
+        ce_gaussian(x_0, pred_mean, pred_var)
+    return 0
     
 def scaled_dp_attn(q, k, v, mask):
     qk = tf.matmul(q, k, transpose_b=True) #batch_size, d_model, seq_len_q, seq_len_k
@@ -236,7 +265,7 @@ class Text_Style_Encoder(Model):
         return text_out
 
 class DiffusionWriter(Model):
-    def __init__(self, num_layers=4, c1=128, c2=192, c3=256, drop_rate=0.1, num_heads=8, encoder_att_layers=1):
+    def __init__(self, num_layers=4, c1=128, c2=192, c3=256, drop_rate=0.1, num_heads=8, encoder_att_layers=1, learn_sigma=False):
         super().__init__()
         self.input_dense = Dense(c1)
         self.sigma_ffn = ff_network(c1//4, 2048)
@@ -261,10 +290,14 @@ class DiffusionWriter(Model):
         self.dec1 = ConvSubLayer(c1, [1, 1])
         self.output_dense = Dense(2)
         self.pen_lifts_dense = Dense(1, activation='sigmoid')
+        self.learn_sigma = learn_sigma
+        if learn_sigma:
+            self.output_sigma = Dense(2, activation='sigmoid')
  
     def call(self, strokes, text, sigma, style_vector):
         sigma = self.sigma_ffn(sigma)
         text_mask = create_padding_mask(text)
+
         text = self.text_style_encoder(text, style_vector, sigma)
 
         x = self.input_dense(strokes)
@@ -294,4 +327,9 @@ class DiffusionWriter(Model):
         
         output = self.output_dense(x)
         pl = self.pen_lifts_dense(x)
-        return output, pl, att
+        if self.learn_sigma:
+            sigma = self.output_sigma(x)
+            return output, pl, sigma, att
+        # static cov matrix
+        else:
+            return output, pl, att

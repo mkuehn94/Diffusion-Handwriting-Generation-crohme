@@ -1,3 +1,4 @@
+from xmlrpc.client import Boolean
 import tensorflow as tf
 import torch
 import numpy as np
@@ -22,16 +23,25 @@ sys.path.append("./BTTRcustom/")
 from bttr.lit_bttr import LitBTTR
 
 @tf.function
-def train_step(x, pen_lifts, text, style_vectors, glob_args):
-    model, alpha_set, bce, train_loss, optimizer = glob_args
-    alphas = utils.get_alphas(len(x), alpha_set)
+def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args):
+    model, alpha_set, beta_set, bce, train_loss, optimizer = glob_args
+    if(interpolate_alphas):
+        alphas, timesteps = utils.get_alphas(len(x), alpha_set)
+    else:
+        alphas, timesteps = utils.get_alphas_new(len(x), alpha_set)
     eps = tf.random.normal(tf.shape(x))
     x_perturbed = tf.sqrt(alphas) * x 
     x_perturbed += tf.sqrt(1 - alphas) * eps
     
     with tf.GradientTape() as tape:
-        score, pl_pred, att = model(x_perturbed, text, tf.sqrt(alphas), style_vectors, training=True)
+        if model.learn_sigma:
+            score, pl_pred, sigma_logits, att = model(x_perturbed, text, tf.sqrt(alphas), style_vectors, training=True)
+            #psigma = INTERPOLATE
+        else:
+            score, pl_pred, att = model(x_perturbed, text, tf.sqrt(alphas), style_vectors, training=True)
         loss = nn.loss_fn(eps, score, pen_lifts, pl_pred, alphas, bce)
+        if model.learn_sigma:
+            loss += nn.sigma_los_vb(x_perturbed, x, timesteps, alpha_set, beta_set, score, sigma)
         
     gradients = tape.gradient(loss, model.trainable_variables)  
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -70,15 +80,15 @@ def calculate_fid(model, images1, images2):
 val_model = InceptionV3()
 ckpt = './BTTRcustom/checkpoints/pretrained-2014.ckpt'
 lit_model = LitBTTR.load_from_checkpoint(ckpt)
-def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS, print_every=1000, save_every=10000, train_summary_writer = None, val_every = None, val_dataset = None):
+def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS, print_every=1000, save_every=10000, interpolate_alphas=True, train_summary_writer = None, val_every = None, val_dataset = None):
     assert DIFF_STEPS == len(alpha_set) == len(beta_set)
     s = time.time()
     bce = tf.keras.losses.BinaryCrossentropy(from_logits=False)
     train_loss = tf.keras.metrics.Mean()
     for count, (strokes, text, style_vectors) in enumerate(dataset.repeat(5000)):
         strokes, pen_lifts = strokes[:, :, :2], strokes[:, :, 2:]
-        glob_args = model, alpha_set, bce, train_loss, optimizer
-        model_out, att = train_step(strokes, pen_lifts, text, style_vectors, glob_args)
+        glob_args = model, alpha_set, beta_set, bce, train_loss, optimizer
+        model_out, att = train_step(strokes, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
         
         if optimizer.iterations%print_every==0:
             print("Iteration %d, Loss %f, Time %ds" % (optimizer.iterations, train_loss.result(), time.time()-s))
@@ -114,6 +124,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS
                 #select random text from dataset
                 text = val_dataset['texts'][indices[i*BATCH_SIZE:i*BATCH_SIZE+BATCH_SIZE]]
                 style = val_dataset['style_vectors'][indices[i*BATCH_SIZE:i*BATCH_SIZE+BATCH_SIZE]]
+                
                 #style = tf.expand_dims(style, axis=0)
                 seq_length = np.max(np.count_nonzero(text, axis=1))
                 #print('seq_length: ', seq_length)
@@ -197,6 +208,8 @@ def main():
     parser.add_argument('--num_heads', help='number of attention heads for encoder', default=8, type=int)
     parser.add_argument('--enc_att_layers', help='number of attention layers for encoder', default=1, type=int)
     parser.add_argument('--noise_shedule', help='specifies which noise shedule to use (default or cosine)', default='default', type=str)
+    parser.add_argument('--learn_sigma', help='learn cov matrix', default=False, type=Boolean)
+    parser.add_argument('--interpolate_alphas', help='interpolate alphas in training step', default=True, type=Boolean)
 
     args = parser.parse_args()
     TB_PREFIX = args.tb_prefix
@@ -215,6 +228,8 @@ def main():
     ENCODER_NUM_HEADS = args.num_heads
     ENCODER_NUM_ATTLAYERS = args.enc_att_layers
     NOISE_SHEDULE = args.noise_shedule
+    LEARN_SIGMA = args.learn_sigma
+    INTERPOLATE_ALPHAS = args.interpolate_alphas
     assert NOISE_SHEDULE in ['default', 'cosine']
     C1 = args.channels
     C2 = C1 * 3//2
@@ -239,8 +254,18 @@ def main():
         alpha_set = tf.math.cumprod(1-beta_set)
 
     style_extractor = nn.StyleExtractor()
-    model = nn.DiffusionWriter(num_layers=NUM_ATTLAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE, num_heads=ENCODER_NUM_HEADS, encoder_att_layers=ENCODER_NUM_ATTLAYERS)
+    model = nn.DiffusionWriter(num_layers=NUM_ATTLAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE, num_heads=ENCODER_NUM_HEADS, encoder_att_layers=ENCODER_NUM_ATTLAYERS, learn_sigma=LEARN_SIGMA)
     lr = nn.InvSqrtSchedule(C3, warmup_steps=WARMUP_STEPS)
+    # plot lr
+    if False:
+        a = []
+        lrs = []
+        for i in range(0, 60000, 100):
+            print(i, lr(float(i)).numpy())
+            a.append(i)
+            lrs.append(lr(float(i)).numpy())
+        plt.plot(a, lrs)
+        plt.show()
     optimizer = tf.keras.optimizers.Adam(lr, beta_1=0.9, beta_2=0.98, clipnorm=100)
     
     path = './data/crohme_strokes.p'
@@ -248,7 +273,7 @@ def main():
     dataset, style_vectors = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
 
     val_dataset = {'texts': texts, 'samples': unpadded, 'style_vectors': style_vectors}
-    train(dataset, NUM_STEPS, model, optimizer, alpha_set, beta_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset)
+    train(dataset, NUM_STEPS, model, optimizer, alpha_set, beta_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, INTERPOLATE_ALPHAS, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset)
 
 if __name__ == '__main__':
     main()

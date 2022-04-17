@@ -73,7 +73,13 @@ def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, retur
 
     plt.close()
 
-    
+
+def get_alphas_new(batch_size, alpha_set):
+    timesteps = tf.random.uniform([batch_size, 1], maxval=len(alpha_set), dtype=tf.int32)
+    alphas = tf.gather_nd(alpha_set, timesteps)
+    alphas = tf.reshape(alphas, [batch_size, 1, 1])
+    return alphas, timesteps
+
 def get_alphas(batch_size, alpha_set): 
     alpha_indices = tf.random.uniform([batch_size, 1], maxval=len(alpha_set) - 1, dtype=tf.int32)
     lower_alphas = tf.gather_nd(alpha_set, alpha_indices)
@@ -81,7 +87,7 @@ def get_alphas(batch_size, alpha_set):
     alphas = tf.random.uniform(lower_alphas.shape, maxval=1) * (upper_alphas - lower_alphas) 
     alphas += lower_alphas
     alphas = tf.reshape(alphas, [batch_size, 1, 1])
-    return alphas
+    return alphas, alpha_indices
 
 def standard_diffusion_step(xt, eps, beta, alpha, add_sigma=True):
     x_t_minus1 = (1 / tf.sqrt(1-beta)) * (xt - (beta * eps/tf.sqrt(1-alpha)))
