@@ -22,6 +22,8 @@ import sys
 sys.path.append("./BTTRcustom/")
 from bttr.lit_bttr import LitBTTR
 
+SIGMA_LOSS_COEF = 0.001
+
 @tf.function
 def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args):
     model, alpha_set, beta_set, bce, train_loss, optimizer = glob_args
@@ -35,13 +37,27 @@ def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
     
     with tf.GradientTape() as tape:
         if model.learn_sigma:
+            batch_size = len(x)
+            betas = tf.gather_nd(beta_set, timesteps)
+            betas = tf.reshape(betas, [batch_size, 1, 1])
+            alpha_set_prev = tf.concat(values=([1], alpha_set[:-1]), axis=0)
+            beta_bar_set = beta_set * (1.0 - alpha_set_prev) / (1.0 - alpha_set)
+            beta_bar_set_clipped = tf.concat(values=([beta_bar_set[1]], beta_bar_set[1:]), axis=0)
+
+            beta_bars = tf.gather_nd(beta_bar_set_clipped, timesteps)
+            beta_bars = tf.reshape(beta_bars, [batch_size, 1, 1])
+
+            min_log = tf.math.log(beta_bars)
+            max_log = tf.math.log(betas)
+            
             score, pl_pred, sigma_logits, att = model(x_perturbed, text, tf.sqrt(alphas), style_vectors, training=True)
-            #psigma = INTERPOLATE
+            model_log_variance = sigma_logits * max_log + (1 - sigma_logits) * min_log
+            sigma = tf.exp(model_log_variance)
         else:
             score, pl_pred, att = model(x_perturbed, text, tf.sqrt(alphas), style_vectors, training=True)
         loss = nn.loss_fn(eps, score, pen_lifts, pl_pred, alphas, bce)
         if model.learn_sigma:
-            loss += nn.sigma_los_vb(x_perturbed, x, timesteps, alpha_set, beta_set, score, sigma)
+            loss += SIGMA_LOSS_COEF * nn.sigma_los_vb(x_perturbed, x, timesteps, alphas, betas, alpha_set, alpha_set_prev, beta_set, beta_bars, score, sigma)
         
     gradients = tape.gradient(loss, model.trainable_variables)  
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))

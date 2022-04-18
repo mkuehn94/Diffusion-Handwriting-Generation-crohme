@@ -47,24 +47,44 @@ import tensorflow_probability as tfp
 tfd = tfp.distributions
 def ce_gaussian(x_0, mean, variance):
     diff = mean - x_0
-    dist = tfd.Normal(loc=[mean], scale=[variance])
-    lower_bound = dist.cdf([mean - diff])
-    uppder_bound = dist.cdf([mean + diff])
-    logits = 1 - abs(uppder_bound - lower_bound).numpy()
+    dist = tfd.Normal(loc=mean, scale=variance)
+    lower_bound = dist.cdf(mean - diff)
+    uppder_bound = dist.cdf(mean + diff)
+    logits = 1 - tf.math.abs(uppder_bound - lower_bound)
     print(logits)
     print(-tf.math.log(logits))
     return -tf.math.log(logits)
 
-def sigma_los_vb(x_t, x_0, t, alpha_set, beta_set, pred_mean, pred_var):
+def kl_gaussian(mu1, sigma1, mu2, sigma2):
+    c = tf.math.log(sigma2/sigma1)
+    a = (sigma1 ** 2 + ((mu1 - mu2) ** 2))
+    b = 2*(sigma2**2)
+    return c + (a / b) - 0.5
+
+def sigma_los_vb(x_t, x_0, t, alphas, betas, alpha_set, alpha_set_prev, beta_set, beta_bars, pred_mean, pred_var):
     # for t > 0
-    # KL Divergence between two gaussians
-    # compute true mean / variance of diffusion step
+    # KL Divergence between true and predicted gaussians
+    batch_size = len(x_t)
+    alpha_set_prev_sqrt = tf.math.sqrt(alpha_set_prev)
+    alpha_set_sqrt = tf.math.sqrt(alpha_set)
+    mean_coef_1_set = (alpha_set_prev_sqrt * beta_set) / (1 - alpha_set)
+    mean_coef_2_set = (alpha_set_sqrt * (1 - alpha_set_prev)) / (1 - alpha_set)
+    mean_coef1 = tf.gather_nd(mean_coef_1_set, t)
+    mean_coef2 = tf.gather_nd(mean_coef_2_set, t)
+    mean_coef1 = tf.reshape(mean_coef1, [batch_size, 1, 1])
+    mean_coef2 = tf.reshape(mean_coef2, [batch_size, 1, 1])
+
+    true_mean = mean_coef1 * x_0 + mean_coef2 * x_t
+    true_variance = beta_bars
+    kl = kl_gaussian(true_mean, true_variance, pred_mean, pred_var)
 
     # for t = 0
     # negtive log likelihood of gaussian & image
-    if(t == 0):
-        ce_gaussian(x_0, pred_mean, pred_var)
-    return 0
+    nll = ce_gaussian(x_0, pred_mean, pred_var)
+
+    sigma_loss = tf.where([t]==0, nll, kl)
+    sigma_loss = tf.math.reduce_mean(sigma_loss)
+    return sigma_loss
     
 def scaled_dp_attn(q, k, v, mask):
     qk = tf.matmul(q, k, transpose_b=True) #batch_size, d_model, seq_len_q, seq_len_k
