@@ -224,8 +224,8 @@ def main():
     parser.add_argument('--num_heads', help='number of attention heads for encoder', default=8, type=int)
     parser.add_argument('--enc_att_layers', help='number of attention layers for encoder', default=1, type=int)
     parser.add_argument('--noise_shedule', help='specifies which noise shedule to use (default or cosine)', default='default', type=str)
-    parser.add_argument('--learn_sigma', help='learn cov matrix', default=True, type=Boolean)
-    parser.add_argument('--interpolate_alphas', help='interpolate alphas in training step', default=False, type=Boolean)
+    parser.add_argument('--learn_sigma', help='learn cov matrix', default=False, type=Boolean)
+    parser.add_argument('--interpolate_alphas', help='interpolate alphas in training step', default=True, type=Boolean)
 
     args = parser.parse_args()
     TB_PREFIX = args.tb_prefix
