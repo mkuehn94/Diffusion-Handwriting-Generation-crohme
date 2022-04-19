@@ -32,7 +32,7 @@ def ff_network(C, dff=768, act_before=True):
     if act_before: ff_layers.insert(0, Activation('swish'))
     return Sequential(ff_layers)   
     
-def loss_fn(eps, score_pred, pl, pl_pred, abar, bce, learn_sigma=False, sigma_loss_coef=0.001):
+def loss_fn(eps, score_pred, pl, pl_pred, abar, bce):
     score_loss = tf.reduce_mean(tf.reduce_sum(tf.square(eps - score_pred), axis=-1))
     pl_loss = tf.reduce_mean(bce(pl, pl_pred) * tf.squeeze(abar, -1))
     return score_loss + pl_loss
@@ -61,7 +61,7 @@ def kl_gaussian(mu1, sigma1, mu2, sigma2):
     b = 2*(sigma2**2)
     return c + (a / b) - 0.5
 
-def sigma_los_vb(x_t, x_0, t, alphas, betas, alpha_set, alpha_set_prev, beta_set, beta_bars, pred_mean, pred_var):
+def sigma_los_vb(x_t, x_0, t, alphas, betas, alpha_set, alpha_set_prev, beta_set, beta_bars, pred_mean, pred_var, train_summary_writer, step):
     # for t > 0
     # KL Divergence between true and predicted gaussians
     batch_size = len(x_t)
@@ -79,8 +79,17 @@ def sigma_los_vb(x_t, x_0, t, alphas, betas, alpha_set, alpha_set_prev, beta_set
     kl = kl_gaussian(true_mean, true_variance, pred_mean, pred_var)
 
     # for t = 0
-    # negtive log likelihood of gaussian & image
+    # negtive log likelihood of gaussian & first sample
     nll = ce_gaussian(x_0, pred_mean, pred_var)
+
+    # tensorboard logging
+    n_tn0 = tf.math.count_nonzero(t[:,0])
+    n_t0 = batch_size - n_tn0
+    nll_mean = tf.math.reduce_mean(nll) / tf.cast(n_t0, tf.float32)
+    kl_mean = tf.math.reduce_mean(kl) / tf.cast(n_tn0, tf.float32)
+    with train_summary_writer.as_default():
+        tf.summary.scalar('nll_mean', nll_mean * 0.001, step=step)
+        tf.summary.scalar('kl_mean', kl_mean * 0.001, step=step)
 
     sigma_loss = tf.where([t]==0, nll, kl)
     sigma_loss = tf.math.reduce_mean(sigma_loss)

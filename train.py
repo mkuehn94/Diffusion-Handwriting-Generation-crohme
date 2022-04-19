@@ -26,7 +26,7 @@ SIGMA_LOSS_COEF = 0.001
 
 @tf.function
 def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args):
-    model, alpha_set, beta_set, bce, train_loss, optimizer = glob_args
+    model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer = glob_args
     if(interpolate_alphas):
         alphas, timesteps = utils.get_alphas(len(x), alpha_set)
     else:
@@ -57,7 +57,7 @@ def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
             score, pl_pred, att = model(x_perturbed, text, tf.sqrt(alphas), style_vectors, training=True)
         loss = nn.loss_fn(eps, score, pen_lifts, pl_pred, alphas, bce)
         if model.learn_sigma:
-            loss += SIGMA_LOSS_COEF * nn.sigma_los_vb(x_perturbed, x, timesteps, alphas, betas, alpha_set, alpha_set_prev, beta_set, beta_bars, score, sigma)
+            loss += SIGMA_LOSS_COEF * nn.sigma_los_vb(x_perturbed, x, timesteps, alphas, betas, alpha_set, alpha_set_prev, beta_set, beta_bars, score, sigma, train_summary_writer, step=optimizer.iterations)
         
     gradients = tape.gradient(loss, model.trainable_variables)  
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -103,7 +103,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS
     train_loss = tf.keras.metrics.Mean()
     for count, (strokes, text, style_vectors) in enumerate(dataset.repeat(5000)):
         strokes, pen_lifts = strokes[:, :, :2], strokes[:, :, 2:]
-        glob_args = model, alpha_set, beta_set, bce, train_loss, optimizer
+        glob_args = model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer
         model_out, att = train_step(strokes, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
         
         if optimizer.iterations%print_every==0:
@@ -224,8 +224,8 @@ def main():
     parser.add_argument('--num_heads', help='number of attention heads for encoder', default=8, type=int)
     parser.add_argument('--enc_att_layers', help='number of attention layers for encoder', default=1, type=int)
     parser.add_argument('--noise_shedule', help='specifies which noise shedule to use (default or cosine)', default='default', type=str)
-    parser.add_argument('--learn_sigma', help='learn cov matrix', default=False, type=Boolean)
-    parser.add_argument('--interpolate_alphas', help='interpolate alphas in training step', default=True, type=Boolean)
+    parser.add_argument('--learn_sigma', help='learn cov matrix', default=True, type=Boolean)
+    parser.add_argument('--interpolate_alphas', help='interpolate alphas in training step', default=False, type=Boolean)
 
     args = parser.parse_args()
     TB_PREFIX = args.tb_prefix
