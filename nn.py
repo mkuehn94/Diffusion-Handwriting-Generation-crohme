@@ -90,9 +90,13 @@ def sigma_los_vb(x_t, x_0, t, alphas, betas, alpha_set, alpha_set_prev, beta_set
     with train_summary_writer.as_default():
         tf.summary.scalar('nll_mean', nll_mean * 0.001, step=step)
         tf.summary.scalar('kl_mean', kl_mean * 0.001, step=step)
+        tf.summary.scalar('n_tn0', n_tn0, step=step)
+        tf.summary.scalar('n_t0', n_t0, step=step)
 
     sigma_loss = tf.where([t]==0, nll, kl)
     sigma_loss = tf.math.reduce_mean(sigma_loss)
+    with train_summary_writer.as_default():
+        tf.summary.scalar('sigma_loss', sigma_loss * 0.001, step=step)
     return sigma_loss
     
 def scaled_dp_attn(q, k, v, mask):
