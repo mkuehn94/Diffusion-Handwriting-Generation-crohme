@@ -51,8 +51,6 @@ def ce_gaussian(x_0, mean, variance):
     lower_bound = dist.cdf(mean - diff)
     uppder_bound = dist.cdf(mean + diff)
     logits = 1 - tf.math.abs(uppder_bound - lower_bound)
-    print(logits)
-    print(-tf.math.log(logits))
     return -tf.math.log(logits)
 
 def kl_gaussian(mu1, sigma1, mu2, sigma2):
@@ -85,13 +83,14 @@ def sigma_los_vb(x_t, x_0, t, alphas, betas, alpha_set, alpha_set_prev, beta_set
     # tensorboard logging
     n_tn0 = tf.math.count_nonzero(t[:,0])
     n_t0 = batch_size - n_tn0
-    nll_mean = tf.math.reduce_mean(nll) / tf.cast(n_t0, tf.float32)
-    kl_mean = tf.math.reduce_mean(kl) / tf.cast(n_tn0, tf.float32)
+    nll_mean = tf.math.reduce_sum(nll) / tf.cast(n_t0, tf.float32)
+    kl_mean = tf.math.reduce_sum(kl) / tf.cast(n_tn0, tf.float32)
     with train_summary_writer.as_default():
         tf.summary.scalar('nll_mean', nll_mean * 0.001, step=step)
         tf.summary.scalar('kl_mean', kl_mean * 0.001, step=step)
-        tf.summary.scalar('n_tn0', n_tn0, step=step)
-        tf.summary.scalar('n_t0', n_t0, step=step)
+        tf.summary.scalar('pred_mean', tf.math.reduce_mean(pred_mean), step=step)
+        tf.summary.scalar('pred_var', tf.math.reduce_mean(pred_var), step=step)
+
 
     sigma_loss = tf.where([t]==0, nll, kl)
     sigma_loss = tf.math.reduce_mean(sigma_loss)
