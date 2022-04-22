@@ -45,13 +45,19 @@ def kl_gaussian(mu1, sigma1, mu2, sigma2):
 
 import tensorflow_probability as tfp
 tfd = tfp.distributions
-def ce_gaussian(x_0, mean, variance):
-    diff = mean - x_0
-    dist = tfd.Normal(loc=mean, scale=variance)
-    lower_bound = dist.cdf(mean - diff)
-    uppder_bound = dist.cdf(mean + diff)
-    logits = 1 - tf.math.abs(uppder_bound - lower_bound)
-    return -tf.math.log(logits)
+def ce_gaussian(x_0, mean, variance, train_summary_writer=None, step=None):
+    with train_summary_writer.as_default():
+        diff = mean - x_0
+        tf.summary.scalar('diff', tf.reduce_mean(diff), step=step)
+        dist = tfd.Normal(loc=mean, scale=variance)
+        
+        lower_bound = dist.cdf(mean - diff)
+        tf.summary.scalar('lower_bound', tf.reduce_mean(lower_bound), step=step)
+        uppder_bound = dist.cdf(mean + diff)
+        tf.summary.scalar('uppder_bound', tf.reduce_mean(uppder_bound), step=step)
+        logits = 1 - tf.math.abs(uppder_bound - lower_bound)
+        tf.summary.scalar('logits', tf.reduce_mean(logits), step=step)
+        return -tf.math.log(logits)
 
 def kl_gaussian(mu1, sigma1, mu2, sigma2):
     c = tf.math.log(sigma2/sigma1)
