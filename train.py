@@ -206,7 +206,8 @@ def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS
             
 
 def main():
-    parser = argparse.ArgumentParser()    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', help='name of the dataset .p file', default='crohme_strokes.p', type=str)
     parser.add_argument('--steps', help='number of trainsteps, default 60k', default=60000, type=int)
     parser.add_argument('--batchsize', help='default 96', default=96, type=int)
     parser.add_argument('--seqlen', help='sequence length during training, default 480', default=480, type=int)
@@ -228,6 +229,7 @@ def main():
     parser.add_argument('--interpolate_alphas', help='interpolate alphas in training step', default=True, type=Boolean)
 
     args = parser.parse_args()
+    DATASET = args.dataset
     TB_PREFIX = args.tb_prefix
     NUM_STEPS = args.steps
     BATCH_SIZE = args.batchsize
@@ -284,7 +286,7 @@ def main():
         plt.show()
     optimizer = tf.keras.optimizers.Adam(lr, beta_1=0.9, beta_2=0.98, clipnorm=100)
     
-    path = './data/new.p'
+    path = './data/{}'.format(DATASET)
     strokes, texts, samples, unpadded = utils.preprocess_data(path, MAX_TEXT_LEN, MAX_SEQ_LEN, WIDTH, 96, train_summary_writer)
     dataset, style_vectors = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
 
