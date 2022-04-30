@@ -144,11 +144,12 @@ def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS
         glob_args = model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer
         model_out, att = train_step(strokes, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
         
-        
         if optimizer.iterations%print_every==0:
             print("Iteration %d, Loss %f, Time %ds" % (optimizer.iterations, train_loss.result(), time.time()-s))
             if dataset_val is not None:
-                val_loss = validation_step(strokes, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
+                for (val_strokes, val_text, val_style_vectors) in dataset_val:
+                    val_strokes, val_pen_lifts = val_strokes[:, :, :2], val_strokes[:, :, 2:]
+                    val_loss = validation_step(val_strokes, val_pen_lifts, val_text, val_style_vectors, interpolate_alphas, glob_args)
                 tf.print("val_loss:", val_loss, output_stream=sys.stdout)
             with train_summary_writer.as_default():
                 tf.summary.scalar('loss', train_loss.result(), step=optimizer.iterations)
@@ -262,7 +263,7 @@ def main():
     parser.add_argument('--dropout', help='dropout rate, default 0', default=0.0, type=float)
     parser.add_argument('--num_attlayers', help='number of attentional layers at lowest resolution', default=2, type=int)
     parser.add_argument('--channels', help='number of channels in first layer, default 128', default=128, type=int)
-    parser.add_argument('--print_every', help='show train loss every n iters', default=1000, type=int)
+    parser.add_argument('--print_every', help='show train loss every n iters', default=250, type=int)
     parser.add_argument('--save_every', help='save ckpt every n iters', default=10000, type=int)
     parser.add_argument('--diffusion_steps', help='number of diffusion steps', default=60, type=int)
     parser.add_argument('--tb_prefix', help='prefix for tensorboard logs', default=None, type=str)
