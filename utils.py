@@ -27,9 +27,13 @@ def cosine_f(t, T):
     return c * c
 
 def cosine_alpha(t, T):
+    if t == 0:
+        return 1
     return (cosine_f(t, T)/cosine_f(0, T))
 
 def cosine_beta(t, T):
+    if t == 0:
+        return 0
     return 1 - (cosine_alpha(t, T) / (cosine_alpha(t-1, T)))
 
 def get_cosine_beta_set(L):
@@ -90,14 +94,23 @@ def get_alphas(batch_size, alpha_set):
     return alphas, alpha_indices
 
 def standard_diffusion_step(xt, eps, beta, alpha, add_sigma=True):
-    x_t_minus1 = (1 / tf.sqrt(1-beta)) * (xt - (beta * eps/tf.sqrt(1-alpha)))
-    if add_sigma: x_t_minus1 += tf.sqrt(beta) * (tf.random.normal(xt.shape))
+    x_t_minus1 = (1 / tf.sqrt(1-beta)) * (xt - (beta * eps/(tf.sqrt(1-alpha)+0.00000001)))
+    if add_sigma: 
+        x_t_minus1 += tf.sqrt(beta) * (tf.random.normal(xt.shape))
     return x_t_minus1
    
 def new_diffusion_step(xt, eps, beta, alpha, alpha_next):
     x_t_minus1 = (xt - tf.sqrt(1-alpha)*eps) / tf.sqrt(1-beta)
     x_t_minus1 += tf.random.normal(xt.shape) * tf.sqrt(1-alpha_next)
     return x_t_minus1
+
+def test_diffusion_step(xt, eps, beta, alpha, add_sigma=True):
+    coef1 = (1 - (1 - beta)) / (tf.sqrt(1 - alpha)+0.00000001)
+    x_t_minus1 = (xt - coef1 * eps) / tf.sqrt(1 - beta)
+    if add_sigma: 
+        x_t_minus1 += beta * (tf.random.normal(xt.shape) * 0.5)
+    return x_t_minus1
+
     
 def run_batch_inference(model, beta_set, alpha_set, text, style, tokenizer=None, time_steps=480, diffusion_mode='new', show_every=None, show_samples=True, path=None, return_image=False):
     if isinstance(text, str):
@@ -125,8 +138,10 @@ def run_batch_inference(model, beta_set, alpha_set, text, style, tokenizer=None,
         model_out, pen_lifts, att = model(x, text, tf.sqrt(alpha), style)
         if diffusion_mode == 'standard':
             x = standard_diffusion_step(x, model_out, beta, alpha, add_sigma=bool(i)) 
-        else: 
+        elif diffusion_mode == 'new': 
             x = new_diffusion_step(x, model_out, beta, alpha, a_next)
+        elif diffusion_mode == 'test':
+            x = test_diffusion_step(x, model_out, beta, alpha, add_sigma=bool(i))
         
         if show_every is not None:
             if i in show_every:
@@ -198,7 +213,7 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height, trai
     samples = np.array(samples)
     return strokes, texts, samples, unpadded
     
-def create_dataset(strokes, texts, samples, style_extractor, batch_size, buffer_size):    
+def create_dataset(strokes, texts, samples, style_extractor, batch_size, buffer_size, num_val=0):    
     #we DO NOT SHUFFLE here, because we will shuffle later
     samples = tf.data.Dataset.from_tensor_slices(samples).batch(batch_size)
     for count, s in enumerate(samples):
@@ -206,12 +221,18 @@ def create_dataset(strokes, texts, samples, style_extractor, batch_size, buffer_
         style_vec = style_vec.numpy()
         if count==0: style_vectors = np.zeros((0, style_vec.shape[1], 1280))
         style_vectors = np.concatenate((style_vectors, style_vec), axis=0)
-    #style_vectors = np.zeros((len(texts), 0, 1280))
     style_vectors = style_vectors.astype('float32')
     
-    dataset = tf.data.Dataset.from_tensor_slices((strokes, texts, style_vectors))
-    dataset = dataset.shuffle(buffer_size).batch(batch_size, drop_remainder=True).prefetch(tf.data.experimental.AUTOTUNE)
-    return dataset, style_vectors
+    if num_val > 0:
+        dataset_val = tf.data.Dataset.from_tensor_slices((strokes[:num_val], texts[:num_val], style_vectors[:num_val]))
+        dataset = tf.data.Dataset.from_tensor_slices((strokes[num_val:], texts[num_val:], style_vectors[num_val:]))
+        dataset = dataset.shuffle(buffer_size).batch(batch_size, drop_remainder=True).prefetch(tf.data.experimental.AUTOTUNE)
+        dataset_val = dataset_val.batch(batch_size, drop_remainder=True).prefetch(tf.data.experimental.AUTOTUNE)
+        return dataset, style_vectors, dataset_val
+    else:
+        dataset = tf.data.Dataset.from_tensor_slices((strokes, texts, style_vectors))
+        dataset = dataset.shuffle(buffer_size).batch(batch_size, drop_remainder=True).prefetch(tf.data.experimental.AUTOTUNE)
+        return dataset, style_vectors
     
 class Tokenizer:
     def __init__(self):
@@ -248,9 +269,14 @@ class CrohmeTokenizer:
         hist = json.loads(f.read())
         self.vocab = {k: i+2 for i, k in enumerate(hist)}
         self.vocab[' '], self.vocab['<end>'] = 0, 1
+        # reverse dict
+        self.lookup = {v: k for k, v in self.vocab.items()}
     
     def encode(self, tokens):
         return [self.vocab[t] if t in self.vocab.keys() else 0 for t in tokens] + [1]
+
+    def decode(self, tokens):
+        return [self.lookup[t] for t in tokens if t in self.lookup.keys()]
 
 # calculate frechet inception distance
 def calculate_fid(act1, act2):
