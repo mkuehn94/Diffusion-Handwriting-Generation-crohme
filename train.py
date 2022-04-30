@@ -251,7 +251,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', help='name of the dataset .p file', default='suffled.p', type=str)
+    parser.add_argument('--dataset', help='name of the dataset .p file', default='shuffled.p', type=str)
     parser.add_argument('--num_valsamples', help='number of validation samples', default=320, type=int)
     parser.add_argument('--steps', help='number of trainsteps, default 60k', default=60000, type=int)
     parser.add_argument('--batchsize', help='default 96', default=96, type=int)
