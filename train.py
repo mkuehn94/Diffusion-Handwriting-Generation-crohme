@@ -93,23 +93,67 @@ def calculate_fid(model, images1, images2):
 	fid = ssdiff + np.trace(sigma1 + sigma2 - 2.0 * covmean)
 	return fid
 
+@tf.function
+def validation_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args):
+    model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer = glob_args
+    if(interpolate_alphas):
+        alphas, timesteps = utils.get_alphas(len(x), alpha_set)
+    else:
+        alphas, timesteps = utils.get_alphas_new(len(x), alpha_set)
+    eps = tf.random.normal(tf.shape(x))
+    x_perturbed = tf.sqrt(alphas) * x 
+    x_perturbed += tf.sqrt(1 - alphas) * eps
+    
+    #with tf.GradientTape() as tape:
+    if model.learn_sigma:
+        batch_size = len(x)
+        betas = tf.gather_nd(beta_set, timesteps)
+        betas = tf.reshape(betas, [batch_size, 1, 1])
+        alpha_set_prev = tf.concat(values=([1], alpha_set[:-1]), axis=0)
+        beta_bar_set = beta_set * (1.0 - alpha_set_prev) / (1.0 - alpha_set)
+        beta_bar_set_clipped = tf.concat(values=([beta_bar_set[1]], beta_bar_set[1:]), axis=0)
+
+        beta_bars = tf.gather_nd(beta_bar_set_clipped, timesteps)
+        beta_bars = tf.reshape(beta_bars, [batch_size, 1, 1])
+
+        min_log = tf.math.log(beta_bars)
+        max_log = tf.math.log(betas)
+        
+        score, pl_pred, sigma_logits, att = model(x_perturbed, text, tf.sqrt(alphas), style_vectors, training=True)
+        model_log_variance = sigma_logits * max_log + (1 - sigma_logits) * min_log
+        sigma = tf.exp(model_log_variance)
+    else:
+        score, pl_pred, att = model(x_perturbed, text, tf.sqrt(alphas), style_vectors, training=True)
+    loss = nn.loss_fn(eps, score, pen_lifts, pl_pred, alphas, bce)
+    if model.learn_sigma:
+        loss += SIGMA_LOSS_COEF * nn.sigma_los_vb(x_perturbed, x, timesteps, alphas, betas, alpha_set, alpha_set_prev, beta_set, beta_bars, score, sigma, train_summary_writer, step=optimizer.iterations)
+        
+    return loss
+
 val_model = InceptionV3()
 ckpt = './BTTRcustom/checkpoints/pretrained-2014.ckpt'
 lit_model = LitBTTR.load_from_checkpoint(ckpt)
-def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS, print_every=1000, save_every=10000, interpolate_alphas=True, train_summary_writer = None, val_every = None, val_dataset = None):
+def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS, print_every=1000, save_every=10000, interpolate_alphas=True, train_summary_writer = None, val_every = None, val_dataset = None, dataset_val = None):
     assert DIFF_STEPS == len(alpha_set) == len(beta_set)
     s = time.time()
     bce = tf.keras.losses.BinaryCrossentropy(from_logits=False)
     train_loss = tf.keras.metrics.Mean()
+    val_loss = tf.keras.metrics.Mean()
     for count, (strokes, text, style_vectors) in enumerate(dataset.repeat(5000)):
         strokes, pen_lifts = strokes[:, :, :2], strokes[:, :, 2:]
         glob_args = model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer
         model_out, att = train_step(strokes, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
         
+        
         if optimizer.iterations%print_every==0:
             print("Iteration %d, Loss %f, Time %ds" % (optimizer.iterations, train_loss.result(), time.time()-s))
+            if dataset_val is not None:
+                val_loss = validation_step(strokes, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
+                tf.print("val_loss:", val_loss, output_stream=sys.stdout)
             with train_summary_writer.as_default():
                 tf.summary.scalar('loss', train_loss.result(), step=optimizer.iterations)
+                if dataset_val is not None:
+                    tf.summary.scalar('val_loss', val_loss, step=optimizer.iterations)
 
             train_loss.reset_states()
 
@@ -207,7 +251,8 @@ def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', help='name of the dataset .p file', default='crohme_strokes.p', type=str)
+    parser.add_argument('--dataset', help='name of the dataset .p file', default='suffled.p', type=str)
+    parser.add_argument('--num_valsamples', help='number of validation samples', default=320, type=int)
     parser.add_argument('--steps', help='number of trainsteps, default 60k', default=60000, type=int)
     parser.add_argument('--batchsize', help='default 96', default=96, type=int)
     parser.add_argument('--seqlen', help='sequence length during training, default 480', default=480, type=int)
@@ -230,6 +275,7 @@ def main():
 
     args = parser.parse_args()
     DATASET = args.dataset
+    NUM_VAL_SAMPLES = args.num_valsamples
     TB_PREFIX = args.tb_prefix
     NUM_STEPS = args.steps
     BATCH_SIZE = args.batchsize
@@ -288,10 +334,14 @@ def main():
     
     path = './data/{}'.format(DATASET)
     strokes, texts, samples, unpadded = utils.preprocess_data(path, MAX_TEXT_LEN, MAX_SEQ_LEN, WIDTH, 96, train_summary_writer)
-    dataset, style_vectors = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE)
+    if NUM_VAL_SAMPLES == 0:
+        dataset, style_vectors = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE, NUM_VAL_SAMPLES)
+        dataset_val = None
+    else:
+        dataset, style_vectors, dataset_val = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE, NUM_VAL_SAMPLES)
 
     val_dataset = {'texts': texts, 'samples': unpadded, 'style_vectors': style_vectors}
-    train(dataset, NUM_STEPS, model, optimizer, alpha_set, beta_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, INTERPOLATE_ALPHAS, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset)
+    train(dataset, NUM_STEPS, model, optimizer, alpha_set, beta_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, INTERPOLATE_ALPHAS, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset, dataset_val=dataset_val)
 
 if __name__ == '__main__':
     main()
