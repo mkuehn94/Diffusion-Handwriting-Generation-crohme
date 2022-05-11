@@ -130,6 +130,51 @@ def validation_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_
         
     return loss
 
+def find_stroke_center(abs_stroke):
+    min_x = abs_stroke[:, 0].min()
+    min_y = abs_stroke[:, 1].min()
+    max_x = abs_stroke[:, 0].max()
+    max_y = abs_stroke[:, 1].max()
+    center_x = (min_x + max_x) / 2
+    center_y = (min_y + max_y) / 2
+    return np.array([center_x, center_y])
+
+def delta_to_abs_2(delta_strokes):
+    drawn = np.concatenate(([0], delta_strokes[:,2]))
+    drawn = np.expand_dims(drawn, axis=1)
+    abs = np.cumsum(delta_strokes[:,0:2], axis=0)
+    abs = np.concatenate(([[0, 0]], abs))
+
+    abs = np.concatenate((abs, drawn), axis=1)
+    return abs
+
+def abs_to_delta_2(abs_strokes):
+    delta = abs_strokes[1:,0:2] - abs_strokes[:-1,0:2]
+    draws = np.expand_dims(abs_strokes[1:,2], axis=1)
+    delta = np.concatenate((delta, draws), axis=1)
+    return delta
+
+def shear_abs_strokes(abs_strokes, shear_factor):
+    abs_strokes[:, 0:2] = np.dot(abs_strokes[:, 0:2], np.array([[1, shear_factor], [0, 1]]))
+    return abs_strokes
+
+def rotate_abs_strokes(abs_strokes, radians = np.pi/2):
+    abs_strokes[:, 0:2] = np.dot(abs_strokes[:, 0:2], np.array([[np.cos(radians), -np.sin(radians)], [np.sin(radians), np.cos(radians)]]))
+    return abs_strokes
+
+def rotate_delta_stroke(strokes, angle):
+    # rotate the strokes
+    abs_strokes_batch2 = np.zeros((strokes.shape[0], strokes.shape[1]+1, strokes.shape[2]))
+    delta_strokes_batch2 = np.zeros_like(strokes)
+    for i, stroke_groups in enumerate(strokes):
+        abs_strokes2 = delta_to_abs_2(stroke_groups)
+        abs_strokes2[:, 0:2] -= find_stroke_center(abs_strokes2)
+        abs_strokes2 = rotate_abs_strokes(abs_strokes2, radians=angle)
+        abs_strokes_batch2[i] = abs_strokes2
+        delta_strokes_batch2[i] = abs_to_delta_2(abs_strokes2)
+    return delta_strokes_batch2
+
+
 def pertubate_delta_strokes(delta_strokes):
     delta_strokes0 = tf.random.normal(delta_strokes[:, :, 0].shape, delta_strokes[:, :, 0], 0.125 * abs(delta_strokes[:, :, 0]))
     delta_strokes1 = tf.random.normal(delta_strokes[:, :, 1].shape, delta_strokes[:, :, 1], 0.125 * abs(delta_strokes[:, :, 1]))
@@ -138,16 +183,20 @@ def pertubate_delta_strokes(delta_strokes):
 val_model = InceptionV3()
 ckpt = './BTTRcustom/checkpoints/pretrained-2014.ckpt'
 lit_model = LitBTTR.load_from_checkpoint(ckpt)
-def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS, print_every=1000, save_every=10000, interpolate_alphas=True, train_summary_writer = None, val_every = None, val_dataset = None, dataset_val = None, pertubate = False):
+def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS, print_every=1000, save_every=10000, interpolate_alphas=True, train_summary_writer = None, val_every = None, val_dataset = None, dataset_val = None, pertubate = False, rotate = False):
     assert DIFF_STEPS == len(alpha_set) == len(beta_set)
     s = time.time()
     bce = tf.keras.losses.BinaryCrossentropy(from_logits=False)
     train_loss = tf.keras.metrics.Mean()
     val_loss = tf.keras.metrics.Mean()
     for count, (strokes, text, style_vectors) in enumerate(dataset.repeat(5000)):
+        if rotate:
+            angle = random.uniform(-np.pi/12, np.pi/12)
+            strokes = rotate_delta_stroke(strokes, 0.01)
         strokes, pen_lifts = strokes[:, :, :2], strokes[:, :, 2:]
         if pertubate:
             strokes = pertubate_delta_strokes(strokes)
+            
         glob_args = model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer
         model_out, att = train_step(strokes, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
         
@@ -281,6 +330,7 @@ def main():
     parser.add_argument('--learn_sigma', help='learn cov matrix', default=False, type=Boolean)
     parser.add_argument('--interpolate_alphas', help='interpolate alphas in training step', default=True, type=Boolean)
     parser.add_argument('--pertubate_strokes', help='pertubate strokes', default=False, type=Boolean)
+    parser.add_argument('--rotate_strokes', help='rotate strokes by random angle', default=False, type=Boolean)
 
     args = parser.parse_args()
     DATASET = args.dataset
@@ -304,6 +354,7 @@ def main():
     LEARN_SIGMA = args.learn_sigma
     INTERPOLATE_ALPHAS = args.interpolate_alphas
     PERTUBATE = args.pertubate_strokes
+    ROTATE = args.rotate_strokes
     assert NOISE_SHEDULE in ['default', 'cosine']
     C1 = args.channels
     C2 = C1 * 3//2
@@ -351,7 +402,7 @@ def main():
         dataset, style_vectors, dataset_val = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE, NUM_VAL_SAMPLES)
 
     val_dataset = {'texts': texts, 'samples': unpadded, 'style_vectors': style_vectors}
-    train(dataset, NUM_STEPS, model, optimizer, alpha_set, beta_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, INTERPOLATE_ALPHAS, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset, dataset_val=dataset_val, pertubate=PERTUBATE)
+    train(dataset, NUM_STEPS, model, optimizer, alpha_set, beta_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, INTERPOLATE_ALPHAS, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset, dataset_val=dataset_val, pertubate=PERTUBATE, rotate=ROTATE)
 
 if __name__ == '__main__':
     main()
