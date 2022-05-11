@@ -192,7 +192,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS
     for count, (strokes, text, style_vectors) in enumerate(dataset.repeat(5000)):
         if rotate:
             angle = random.uniform(-np.pi/12, np.pi/12)
-            strokes = rotate_delta_stroke(strokes, 0.01)
+            strokes = rotate_delta_stroke(strokes, angle)
         strokes, pen_lifts = strokes[:, :, :2], strokes[:, :, 2:]
         if pertubate:
             strokes = pertubate_delta_strokes(strokes)
