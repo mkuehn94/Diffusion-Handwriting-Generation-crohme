@@ -148,6 +148,24 @@ def delta_to_abs_2(delta_strokes):
     abs = np.concatenate((abs, drawn), axis=1)
     return abs
 
+def delta_to_abs_3(delta_strokes):
+    print(delta_strokes.shape)
+    BATCH_SIZE = delta_strokes.shape[0]
+    drawn = tf.concat([tf.zeros((BATCH_SIZE,1)), delta_strokes[:,:,2]], axis=1)
+    drawn = tf.expand_dims(drawn, axis=2)
+    abs = tf.cumsum(delta_strokes[:,:,0:2], axis=1)
+    abs = tf.concat([tf.zeros((BATCH_SIZE,1, 2)), abs], axis=1)
+    abs = tf.concat([abs, drawn], axis=2)
+    print(abs.shape)
+    return abs
+    
+
+def abs_to_delta_3(abs_strokes):
+    delta = abs_strokes[:,1:,0:2] - abs_strokes[:,:-1,0:2]
+    draws = tf.expand_dims(abs_strokes[:,1:,2], axis=2)
+    delta = tf.concat([delta, draws], axis=2)
+    return delta
+
 def abs_to_delta_2(abs_strokes):
     delta = abs_strokes[1:,0:2] - abs_strokes[:-1,0:2]
     draws = np.expand_dims(abs_strokes[1:,2], axis=1)
@@ -162,17 +180,49 @@ def rotate_abs_strokes(abs_strokes, radians = np.pi/2):
     abs_strokes[:, 0:2] = np.dot(abs_strokes[:, 0:2], np.array([[np.cos(radians), -np.sin(radians)], [np.sin(radians), np.cos(radians)]]))
     return abs_strokes
 
+def rotate_abs_strokes_tf(abs_strokes, radians = np.pi/2):
+    drawn = tf.expand_dims(abs_strokes[:, :, 2], axis=2)
+    strokes = tf.matmul(abs_strokes[:, :, 0:2], tf.constant([[np.cos(radians), -np.sin(radians)], [np.sin(radians), np.cos(radians)]], dtype=tf.float32))
+    return tf.concat([strokes, drawn], axis=2)
+
+def find_stroke_center_tf(abs_stroke):
+    min_x = tf.reduce_min(abs_stroke[:, :, 0], axis=1)
+    min_y = tf.reduce_min(abs_stroke[:, :, 1], axis=1)
+    max_x = tf.reduce_max(abs_stroke[:, :, 0], axis=1)
+    max_y = tf.reduce_max(abs_stroke[:, :, 1], axis=1)
+    center_x = (min_x + max_x) / 2
+    center_y = (min_y + max_y) / 2
+    center = tf.stack([center_x, center_y], axis=1)
+    return center
+
 def rotate_delta_stroke(strokes, angle):
     # rotate the strokes
+    abs_strokes_batch3 = delta_to_abs_3(strokes)
+    center = find_stroke_center_tf(abs_strokes_batch3)
+
+    # move cneter to 0
+    abs_strokes = tf.transpose(abs_strokes_batch3[:, :, 0:2], perm=[1, 0, 2])
+    abs_strokes = tf.subtract(abs_strokes, center)
+    abs_strokes = tf.transpose(abs_strokes, perm=[1, 0, 2])
+    abs_strokes_batch3 = tf.concat([abs_strokes, tf.expand_dims(abs_strokes_batch3[:, :, 2], axis=2)], axis=2)
+
+    abs_strokes_batch3 = rotate_abs_strokes_tf(abs_strokes_batch3, angle)
+    delta_strokes_batch3 = abs_to_delta_3(abs_strokes_batch3)
+    '''
     abs_strokes_batch2 = np.zeros((strokes.shape[0], strokes.shape[1]+1, strokes.shape[2]))
     delta_strokes_batch2 = np.zeros_like(strokes)
+    center2 = np.zeros((strokes.shape[0], 2))
     for i, stroke_groups in enumerate(strokes):
         abs_strokes2 = delta_to_abs_2(stroke_groups)
+        center2[i] = find_stroke_center(abs_strokes2)
         abs_strokes2[:, 0:2] -= find_stroke_center(abs_strokes2)
         abs_strokes2 = rotate_abs_strokes(abs_strokes2, radians=angle)
         abs_strokes_batch2[i] = abs_strokes2
         delta_strokes_batch2[i] = abs_to_delta_2(abs_strokes2)
-    return delta_strokes_batch2
+    tf.print(tf.math.reduce_sum(abs_strokes_batch3 - abs_strokes_batch2))
+    tf.print(tf.math.reduce_sum(delta_strokes_batch3 - delta_strokes_batch2))
+    tf.print(tf.math.reduce_sum(center - center2))'''
+    return delta_strokes_batch3
 
 
 def pertubate_delta_strokes(delta_strokes):
