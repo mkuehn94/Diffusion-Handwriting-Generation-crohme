@@ -149,14 +149,12 @@ def delta_to_abs_2(delta_strokes):
     return abs
 
 def delta_to_abs_3(delta_strokes):
-    print(delta_strokes.shape)
     BATCH_SIZE = delta_strokes.shape[0]
     drawn = tf.concat([tf.zeros((BATCH_SIZE,1)), delta_strokes[:,:,2]], axis=1)
     drawn = tf.expand_dims(drawn, axis=2)
     abs = tf.cumsum(delta_strokes[:,:,0:2], axis=1)
     abs = tf.concat([tf.zeros((BATCH_SIZE,1, 2)), abs], axis=1)
     abs = tf.concat([abs, drawn], axis=2)
-    print(abs.shape)
     return abs
     
 
