@@ -379,7 +379,7 @@ def main():
     parser.add_argument('--interpolate_alphas', help='interpolate alphas in training step', default=True, type=Boolean)
     parser.add_argument('--pertubate_strokes', help='pertubate strokes', default=False, type=Boolean)
     parser.add_argument('--rotate_strokes', help='rotate strokes by random angle', default=False, type=Boolean)
-
+   
     args = parser.parse_args()
     DATASET = args.dataset
     NUM_VAL_SAMPLES = args.num_valsamples
@@ -426,7 +426,8 @@ def main():
         beta_set = utils.get_beta_set(DIFF_STEPS)
         alpha_set = tf.math.cumprod(1-beta_set)
 
-    style_extractor = nn.StyleExtractor()
+    style_extractor = nn.StyleExctractor_BTTR()
+    style_extractor.set_model(lit_model)
     model = nn.DiffusionWriter(num_layers=NUM_ATTLAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE, num_heads=ENCODER_NUM_HEADS, encoder_att_layers=ENCODER_NUM_ATTLAYERS, learn_sigma=LEARN_SIGMA)
     lr = nn.InvSqrtSchedule(C3, warmup_steps=WARMUP_STEPS)
     # plot lr

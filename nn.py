@@ -5,6 +5,8 @@ from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras.layers import (Dense, Conv1D, Embedding, UpSampling1D, AveragePooling1D, 
 AveragePooling2D, GlobalAveragePooling2D, Activation, LayerNormalization, Dropout, Layer)
 
+import sys
+
 def create_padding_mask(seq, repeats=1):
     seq = tf.cast(tf.math.equal(seq, 0), tf.float32)
     seq = tf.repeat(seq, repeats=repeats, axis=-1)
@@ -84,7 +86,7 @@ def sigma_los_vb(x_t, x_0, t, alphas, betas, alpha_set, alpha_set_prev, beta_set
 
     # for t = 0
     # negtive log likelihood of gaussian & first sample
-    nll = ce_gaussian(x_0, pred_mean, pred_var)
+    nll = ce_gaussian(x_0, pred_mean, pred_var, train_summary_writer, step)
 
     # tensorboard logging
     n_tn0 = tf.math.count_nonzero(t[:,0])
@@ -208,6 +210,31 @@ class ConvSubLayer(Model):
         x += x_skip
         return x
 
+from torchvision.transforms import ToTensor
+import torch
+class StyleExctractor_BTTR(Model):
+
+    def __init_(self):
+        super().__init__()
+    
+    def set_model(self, lit_bttr):
+        self.lit_model = lit_bttr
+    
+    def call(self, img):
+        # model takes image values between 0 and 255
+        img = img[:,:,:,0].numpy()
+        img = torch.tensor(img).to(torch.float32)
+        mask = torch.tensor(torch.zeros_like(img)).to(torch.int64)
+
+        img = torch.unsqueeze(img, 0)
+
+        with torch.no_grad():
+            feature, mask_out = self.lit_model.bttr.encoder(img, mask)
+
+        return feature
+
+
+
 class StyleExtractor(Model):
     #takes a grayscale image (with the last channel) with pixels [0, 255]
     #rescales to [-1, 1] and repeats along the channel axis for 3 channels
@@ -289,7 +316,7 @@ class Text_Style_Encoder(Model):
         self.text_ffn = ff_network(d_model, d_model*2)
 
     def call(self, text, style, sigma):
-        style = reshape_up(self.dropout(style), 5)
+        style = reshape_up(self.dropout(style), 4)
         style = self.affine1(self.layernorm(self.style_ffn(style)), sigma)
         text = self.emb(text)
         text = self.affine2(self.layernorm(text), sigma)
