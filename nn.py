@@ -233,7 +233,30 @@ class StyleExctractor_BTTR(Model):
 
         return feature
 
+class StyleExctractor_BTTR_conv(Model):
 
+    def __init_(self):
+        super().__init__()
+
+    def set_model(self, lit_bttr):
+        self.lit_model = lit_bttr
+
+    def call(self, img):
+        # model takes image values between 0 and 255
+        img = img[:,:,:,0].numpy()
+        img = torch.tensor(img).to(torch.float32)
+        mask = torch.tensor(torch.zeros_like(img)).to(torch.int64)
+
+        img = torch.unsqueeze(img, 0)
+
+        with torch.no_grad():
+            feature, mask_out = self.lit_model.bttr.encoder.model(img, mask)
+            feature = self.lit_model.bttr.encoder.feature_proj(feature)
+            print('feature_proj: ', feature.shape)
+            transformed = torch.reshape(feature, (feature.shape[0], feature.shape[2] * feature.shape[3], feature.shape[1]))
+        print(transformed.shape)
+
+        return transformed
 
 class StyleExtractor(Model):
     #takes a grayscale image (with the last channel) with pixels [0, 255]

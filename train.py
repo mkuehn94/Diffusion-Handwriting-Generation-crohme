@@ -426,7 +426,7 @@ def main():
         beta_set = utils.get_beta_set(DIFF_STEPS)
         alpha_set = tf.math.cumprod(1-beta_set)
 
-    style_extractor = nn.StyleExctractor_BTTR()
+    style_extractor = nn.StyleExctractor_BTTR_conv()
     style_extractor.set_model(lit_model)
     model = nn.DiffusionWriter(num_layers=NUM_ATTLAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE, num_heads=ENCODER_NUM_HEADS, encoder_att_layers=ENCODER_NUM_ATTLAYERS, learn_sigma=LEARN_SIGMA)
     lr = nn.InvSqrtSchedule(C3, warmup_steps=WARMUP_STEPS)
