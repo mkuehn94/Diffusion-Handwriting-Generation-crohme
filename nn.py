@@ -251,6 +251,7 @@ class StyleExctractor_BTTR_conv(Model):
         img = torch.unsqueeze(img, 0)
 
         with torch.no_grad():
+            feature, mask_out = self.lit_model.bttr.encoder.model(img, mask)
             feature = self.lit_model.bttr.encoder.feature_proj(feature)
             feature = self.pool(feature)
             transformed = torch.permute(feature, (0, 2, 3, 1))
