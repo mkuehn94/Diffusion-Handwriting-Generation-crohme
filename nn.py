@@ -240,6 +240,7 @@ class StyleExctractor_BTTR_conv(Model):
 
     def set_model(self, lit_bttr):
         self.lit_model = lit_bttr
+        self.pool = torch.nn.MaxPool2d(4)
 
     def call(self, img):
         # model takes image values between 0 and 255
@@ -250,11 +251,11 @@ class StyleExctractor_BTTR_conv(Model):
         img = torch.unsqueeze(img, 0)
 
         with torch.no_grad():
-            feature, mask_out = self.lit_model.bttr.encoder.model(img, mask)
             feature = self.lit_model.bttr.encoder.feature_proj(feature)
-            print('feature_proj: ', feature.shape)
-            transformed = torch.reshape(feature, (feature.shape[0], feature.shape[2] * feature.shape[3], feature.shape[1]))
-        print(transformed.shape)
+            feature = self.pool(feature)
+            transformed = torch.permute(feature, (0, 2, 3, 1))
+            #transformed = torch.reshape(feature, (feature.shape[0], feature.shape[2] * feature.shape[3], feature.shape[1]))
+            print('transformed: ', transformed.shape)
 
         return transformed
 
