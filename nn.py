@@ -255,6 +255,7 @@ class StyleExctractor_BTTR_conv(Model):
             feature = self.lit_model.bttr.encoder.feature_proj(feature)
             feature = self.pool(feature)
             transformed = torch.permute(feature, (0, 2, 3, 1))
+            transformed = transformed[0]
             #transformed = torch.reshape(feature, (feature.shape[0], feature.shape[2] * feature.shape[3], feature.shape[1]))
             print('transformed: ', transformed.shape)
 
