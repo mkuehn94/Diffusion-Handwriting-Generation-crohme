@@ -245,7 +245,7 @@ class StyleExctractor_BTTR_conv(Model):
     def call(self, img):
         # model takes image values between 0 and 255
         img = img[:,:,:,0].numpy()
-        img = torch.tensor(img).to(torch.float32)
+        img = torch.tensor(1 - (img / 255)).to(torch.float32)
         mask = torch.tensor(torch.zeros_like(img)).to(torch.int64)
 
         img = torch.unsqueeze(img, 0)
