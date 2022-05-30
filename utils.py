@@ -190,7 +190,7 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height, trai
         
     strokes, texts, samples = [], [], []
     unpadded = []
-    for x, text, sample in ds[:1000]:
+    for x, text, sample in ds:
         if len(text) < max_text_len:
             x = pad_stroke_seq(x, maxlength=max_seq_len)
             zeros_text = np.zeros((max_text_len-len(text), ))
@@ -205,7 +205,6 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height, trai
 
             if x is not None and sample.shape[1] < img_width: 
                 unpadded.append(sample)
-                print('pad_image, ', img_width, img_height)
                 sample = pad_img(sample, img_width, img_height)
                 strokes.append(x)
                 texts.append(text)
