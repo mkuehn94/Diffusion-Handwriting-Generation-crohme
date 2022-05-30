@@ -190,7 +190,7 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height, trai
         
     strokes, texts, samples = [], [], []
     unpadded = []
-    for x, text, sample in ds:
+    for x, text, sample in ds[:1000]:
         if len(text) < max_text_len:
             x = pad_stroke_seq(x, maxlength=max_seq_len)
             zeros_text = np.zeros((max_text_len-len(text), ))
@@ -205,6 +205,7 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height, trai
 
             if x is not None and sample.shape[1] < img_width: 
                 unpadded.append(sample)
+                print('pad_image, ', img_width, img_height)
                 sample = pad_img(sample, img_width, img_height)
                 strokes.append(x)
                 texts.append(text)
@@ -215,8 +216,7 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height, trai
     
 def create_dataset(strokes, texts, samples, style_extractor, batch_size, buffer_size, num_val=0):    
     #we DO NOT SHUFFLE here, because we will shuffle later
-    batch_size = 1
-    samples = tf.data.Dataset.from_tensor_slices(samples).batch(batch_size)
+    samples = tf.data.Dataset.from_tensor_slices(samples).batch(1)
     
     for count, s in enumerate(samples):
         style_vec = style_extractor(s)
