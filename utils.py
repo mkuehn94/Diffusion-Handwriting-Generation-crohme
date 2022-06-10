@@ -190,7 +190,7 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height, trai
         
     strokes, texts, samples = [], [], []
     unpadded = []
-    for x, text, sample in ds:
+    for x, text, sample in ds[:1000]:
         if len(text) < max_text_len:
             x = pad_stroke_seq(x, maxlength=max_seq_len)
             zeros_text = np.zeros((max_text_len-len(text), ))
@@ -216,11 +216,15 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height, trai
 def create_dataset(strokes, texts, samples, style_extractor, batch_size, buffer_size, num_val=0):    
     #we DO NOT SHUFFLE here, because we will shuffle later
     samples = tf.data.Dataset.from_tensor_slices(samples).batch(1)
-    
+
     for count, s in enumerate(samples):
         style_vec = style_extractor(s)
         style_vec = style_vec.numpy()
-        if count==0: style_vectors = np.zeros((0, style_vec.shape[1], 256))
+        if count==0: 
+            if 'BTTR' in style_extractor.__class__.__name__:
+                style_vectors = np.zeros((0, style_vec.shape[1], 256))
+            else:
+                style_vectors = np.zeros((0, style_vec.shape[1], 1280))
         style_vectors = np.concatenate((style_vectors, style_vec), axis=0)
     style_vectors = style_vectors.astype('float32')
     

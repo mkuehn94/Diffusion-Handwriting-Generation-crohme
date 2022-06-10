@@ -379,6 +379,7 @@ def main():
     parser.add_argument('--interpolate_alphas', help='interpolate alphas in training step', default=True, type=Boolean)
     parser.add_argument('--pertubate_strokes', help='pertubate strokes', default=False, type=Boolean)
     parser.add_argument('--rotate_strokes', help='rotate strokes by random angle', default=False, type=Boolean)
+    parser.add_argument('--style_extractor', help='which style extractor to use (default mobilenet)', default='mobilenet', type=str)
    
     args = parser.parse_args()
     DATASET = args.dataset
@@ -403,6 +404,8 @@ def main():
     INTERPOLATE_ALPHAS = args.interpolate_alphas
     PERTUBATE = args.pertubate_strokes
     ROTATE = args.rotate_strokes
+    STYLE_EXTRACTOR = args.style_extractor
+
     assert NOISE_SHEDULE in ['default', 'cosine']
     C1 = args.channels
     C2 = C1 * 3//2
@@ -425,9 +428,17 @@ def main():
     elif(NOISE_SHEDULE == 'default'):
         beta_set = utils.get_beta_set(DIFF_STEPS)
         alpha_set = tf.math.cumprod(1-beta_set)
+    else:
+        raise ValueError('Noise shedule not supported')
 
-    style_extractor = nn.StyleExctractor_BTTR_conv()
-    style_extractor.set_model(lit_model)
+    if STYLE_EXTRACTOR == 'mobilenet':
+        style_extractor = nn.StyleExtractor()
+    elif(STYLE_EXTRACTOR == 'bttr'):
+        style_extractor = nn.StyleExctractor_BTTR_conv()
+        style_extractor.set_model(lit_model)
+    else:
+        raise ValueError('Style extractor not supported')
+
     model = nn.DiffusionWriter(num_layers=NUM_ATTLAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE, num_heads=ENCODER_NUM_HEADS, encoder_att_layers=ENCODER_NUM_ATTLAYERS, learn_sigma=LEARN_SIGMA)
     lr = nn.InvSqrtSchedule(C3, warmup_steps=WARMUP_STEPS)
     # plot lr
