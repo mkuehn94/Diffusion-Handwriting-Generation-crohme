@@ -244,31 +244,22 @@ class StyleExctractor_BTTR_conv(Model):
 
     def call(self, img):
         from validation import cut_off_white
-        import cv2
+        #import matplotlib.pyplot as plt
+        from skimage.transform import resize
         # model takes image values between 0 and 255
         img = img[:,:,:,0].numpy()
         img = cut_off_white(img)
         img = np.transpose(img, (1,2,0))
+        img = resize(img, (96, 1400))
+        img = np.transpose(img, (2,0,1))
         
-        print(img.shape)
-        img = cv2.resize(img, dsize=(1400, 90), interpolation=cv2. INTER_CUBIC)
-        img = np.expand_dims(img, axis=0)
-        print(img.shape)
-        
-        #cv2.imshow('image',img)
-        #cv2.waitKey(0)
         img = torch.tensor(img)
-
-        # plot img
-        #import matplotlib.pyplot as plt
-        #image_plot = img.repeat(3,1,1)
-        #plt.imshow(torch.permute(image_plot, (1,2,0)))
-        #plt.show()
 
         img = torch.tensor(1 - (img / 255)).to(torch.float32)
         mask = torch.tensor(torch.zeros_like(img)).to(torch.int64)
 
         img = torch.unsqueeze(img, 0)
+        print('img shape torch: ', img.shape)
 
         with torch.no_grad():
             feature, mask_out = self.lit_model.bttr.encoder.model(img, mask)
