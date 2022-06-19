@@ -243,20 +243,26 @@ class StyleExctractor_BTTR_conv(Model):
         self.pool = torch.nn.AvgPool2d(4)
 
     def call(self, img):
-        from validation import cut_off_white
+        from validation import cut_off_white, get_nonwhite_bounds
         #import matplotlib.pyplot as plt
         from skimage.transform import resize
         # model takes image values between 0 and 255
         img = img[:,:,:,0].numpy()
+        bounds = get_nonwhite_bounds(img)
+        print('bounds', bounds)
+        '''
         img = cut_off_white(img)
         img = np.transpose(img, (1,2,0))
         img = resize(img, (96, 1400))
         img = np.transpose(img, (2,0,1))
+        '''
         
         img = torch.tensor(img)
 
         img = torch.tensor(1 - (img / 255)).to(torch.float32)
-        mask = torch.tensor(torch.zeros_like(img)).to(torch.int64)
+        mask = torch.tensor(torch.ones_like(img)).to(torch.int64)
+        mask[:, 0:bounds[1], 0:bounds[2]] = 0
+        print('img shape, mask.shape', img.shape, mask.shape)
 
         img = torch.unsqueeze(img, 0)
         print('img shape torch: ', img.shape)
