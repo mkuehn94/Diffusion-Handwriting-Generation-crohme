@@ -24,10 +24,8 @@ def bttr_beam_search_prob(
         float: _description_
     """
     if(type(image) == np.ndarray):
-        image = ToTensor()(image)
-    print(image.shape)
+        image = ToTensor()(image).numpy()
     logits = bttr_model.beam_search_logits(image).detach()
-
     diff_vocab = get_vocab('diff')
     bttr_vocab = get_vocab('bttr')
 
@@ -62,8 +60,19 @@ def bttr_beam_search_prob(
     seq = np.sum(np.log(preds))
     return (avg, seq)
 
-def cut_off_white(img):
-    pixels = np.where(img<255)
+def get_nonwhite_bounds(img, thres=255):
+    pixels = np.where(img<thres)
+    bounds = []
+    for p in pixels:
+        if len(p) == 0:
+            return None
+        bounds.append(max(p) + 1)
+    if 0 in bounds:
+        return None
+    return bounds
+
+def cut_off_white(img, thres=255):
+    pixels = np.where(img<thres)
     bounds = []
     for p in pixels:
         if len(p) == 0:
@@ -81,7 +90,7 @@ def bttr_beam_search_prob_mean(
         img = cut_off_white(img)
         if(img is None or img.shape[0] + img.shape[1] + img.shape[2] <= 3):
             continue
-        img = ToTensor()(255 - img)
+        img = ToTensor()(1 - img)
         img = img[0, :, :]
         img = torch.unsqueeze(img, 0)
 
