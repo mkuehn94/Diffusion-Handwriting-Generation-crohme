@@ -1,3 +1,4 @@
+from dbm import gnu
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
@@ -52,7 +53,10 @@ def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, retur
     positions = np.cumsum(strokes, axis=0).T[:2]
     prev_ind = 0
     W, H = np.max(positions, axis=-1) - np.min(positions, axis=-1)
-    fig = plt.figure(figsize=(scale * W/H, scale))
+    fig = plt.figure(figsize=(scale * W/H, scale), frameon=False)
+    ax = plt.Axes(fig, [0., 0., 1., 1.])
+    ax.set_axis_off()
+    fig.add_axes(ax)
     #if return_image:
 
     for ind, value in enumerate(strokes[:, 2]):
@@ -111,8 +115,15 @@ def test_diffusion_step(xt, eps, beta, alpha, add_sigma=True):
         x_t_minus1 += beta * (tf.random.normal(xt.shape) * 0.5)
     return x_t_minus1
 
-    
-def run_batch_inference(model, beta_set, alpha_set, text, style, tokenizer=None, time_steps=480, diffusion_mode='new', show_every=None, show_samples=True, path=None, return_image=False):
+def get_stroke_bounds(strokes):
+    positions = np.cumsum(strokes[0], axis=0)
+    min_x = tf.reduce_min(positions[0])
+    max_x = tf.reduce_max(positions[0])
+    min_y = tf.reduce_min(positions[1])
+    max_y = tf.reduce_max(positions[1])
+    return min_x, max_x, min_y, max_y
+
+def run_batch_inference(model, beta_set, alpha_set, text, style, tokenizer=None, time_steps=480, diffusion_mode='new', show_every=None, show_samples=True, path=None, return_image=False, return_both = False):
     if isinstance(text, str):
         text = tf.constant([tokenizer.encode(text)+[1]])
     elif isinstance(text, list) and isinstance(text[0], str):
@@ -154,7 +165,7 @@ def run_batch_inference(model, beta_set, alpha_set, text, style, tokenizer=None,
     x = tf.concat([x, pen_lifts], axis=-1)
     images = []
     for i in range(bs):
-        if return_image:
+        if return_image or return_both:
             img = show(x[i], scale=1, show_output = show_samples, name=path, return_image=True)
             images.append(img)
         else:
@@ -167,8 +178,10 @@ def run_batch_inference(model, beta_set, alpha_set, text, style, tokenizer=None,
 
     if return_image:
         return images
-    else:
+    elif return_both is False:
         return x.numpy()
+    else:
+        return x.numpy(), images
     
 def pad_stroke_seq(x, maxlength):
     if len(x) > maxlength or np.amax(np.abs(x)) > 15: return None
