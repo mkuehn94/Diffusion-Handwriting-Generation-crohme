@@ -39,13 +39,13 @@ def cosine_beta(t, T):
 def get_cosine_beta_set(L):
     beta_set_consine = []
     for i in range(L):
-        beta_set_consine.append(cosine_beta(i, 60))
+        beta_set_consine.append(cosine_beta(i, L))
     return tf.convert_to_tensor(beta_set_consine, dtype=tf.float32)
 
 def get_cosine_alpha_set(L):
     alpha_set_consine = []
     for i in range(L):
-        alpha_set_consine.append(cosine_alpha(i, 60))
+        alpha_set_consine.append(cosine_alpha(i, L))
     return tf.convert_to_tensor(alpha_set_consine, dtype=tf.float32)
     
 def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, return_image=False):
@@ -152,6 +152,7 @@ def run_batch_inference(model, beta_set, alpha_set, text, style, tokenizer=None,
             x = new_diffusion_step(x, model_out, beta, alpha, a_next)
         elif diffusion_mode == 'test':
             x = test_diffusion_step(x, model_out, beta, alpha, add_sigma=bool(i))
+        #print('i: {} x[0] {}'.format(i, x[0][0]))
         
         if show_every is not None:
             if i in show_every:
