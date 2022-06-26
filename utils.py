@@ -27,26 +27,28 @@ def cosine_f(t, T):
     return c * c
 
 def cosine_alpha(t, T):
-    if t == 0:
-        return 1
     return (cosine_f(t, T)/cosine_f(0, T))
 
-def cosine_beta(t, T):
-    if t == 0:
-        return 0
-    return 1 - (cosine_alpha(t, T) / (cosine_alpha(t-1, T)))
+def cosine_beta(t, T, max_beta=0.999):
+    beta = 1 - (cosine_alpha(t, T) / (cosine_alpha(t-1, T)))
+    if beta > max_beta:
+        return max_beta
+    else:
+        return beta
 
 def get_cosine_beta_set(L):
     beta_set_consine = []
-    for i in range(L):
+    for i in range(L+1):
         beta_set_consine.append(cosine_beta(i, L))
-    return tf.convert_to_tensor(beta_set_consine, dtype=tf.float32)
+    return np.array(beta_set_consine)[1:].astype(np.float32)
+    #return tf.convert_to_tensor(beta_set_consine, dtype=tf.float32)
 
 def get_cosine_alpha_set(L):
     alpha_set_consine = []
     for i in range(L):
         alpha_set_consine.append(cosine_alpha(i, L))
-    return tf.convert_to_tensor(alpha_set_consine, dtype=tf.float32)
+    return np.array(alpha_set_consine).astype(np.float32)
+    #return tf.convert_to_tensor(alpha_set_consine, dtype=tf.float32)
     
 def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, return_image=False):
     positions = np.cumsum(strokes, axis=0).T[:2]

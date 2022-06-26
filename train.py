@@ -26,17 +26,50 @@ SIGMA_LOSS_COEF = 0.001
 
 @tf.function
 def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args):
-    model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer = glob_args
+    model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type = glob_args
+    alpha_bars_set = tf.math.cumprod(alpha_set)
     if(interpolate_alphas):
-        alphas, timesteps = utils.get_alphas(len(x), alpha_set)
+        alpha_bars, timesteps = utils.get_alphas(len(x), alpha_bars_set)
     else:
-        alphas, timesteps = utils.get_alphas_new(len(x), alpha_set)
+        alpha_bars, timesteps = utils.get_alphas_new(len(x), alpha_bars_set)
+    #tf.print('alphas: ', alphas)
     eps = tf.random.normal(tf.shape(x))
-    x_perturbed = tf.sqrt(alphas) * x 
-    x_perturbed += tf.sqrt(1 - alphas) * eps
+    x_perturbed = tf.sqrt(alpha_bars) * x 
+    x_perturbed += tf.sqrt(1 - alpha_bars) * eps
     
     with tf.GradientTape() as tape:
-        if model.learn_sigma:
+        # calculate loss
+
+        if loss_type == "vlb":
+            batch_size = len(x)
+            betas = tf.gather_nd(beta_set, timesteps)
+            betas = tf.reshape(betas, [batch_size, 1, 1])
+            #alpha_bars = tf.gather_nd(alpha_bars_set, timesteps)
+            
+            alpha_bar_set_prev = tf.concat(values=([1], alpha_bars_set[:-1]), axis=0)
+
+            beta_bar_set = beta_set * (1.0 - alpha_bar_set_prev) / (1.0 - alpha_bars_set)
+            beta_bar_set_log_clipped = tf.math.log(tf.concat(values=([beta_bar_set[1]], beta_bar_set[1:]), axis=0))
+
+            model_log_variance = tf.gather_nd(beta_bar_set_log_clipped, timesteps) #shape: BATCH_SIZE
+            # [96] -> [96, 488, 2]
+            #b = tf.expand_dims(model_log_variance, axis=1) # [BS, 1]
+            #c = tf.expand_dims(b, axis=2)          # [BS, 1, 1]
+            #model_log_variance = tf.tile(c, (1, 488, 2))
+
+            beta_bars_log = tf.gather_nd(beta_bar_set_log_clipped, timesteps)
+            #beta_bars = tf.reshape(beta_bars, [batch_size, 1, 1])
+
+            #min_log = tf.math.log(beta_bars)
+            #max_log = tf.math.log(betas)
+
+            score, pl_pred, att = model(x_perturbed, text, tf.sqrt(alpha_bars), style_vectors, training=True)
+            tf.print("score", score.shape)
+            #model_log_variance = sigma_logits * max_log + (1 - sigma_logits) * min_log
+            #sigma = tf.exp(model_log_variance)
+            loss = nn.sigma_los_vb(x_perturbed, x, timesteps, alpha_set, alpha_bars_set, alpha_bar_set_prev, beta_set, beta_bars_log, score, model_log_variance, train_summary_writer, step=optimizer.iterations)
+        elif model.learn_sigma:
+            # hybrid loss
             batch_size = len(x)
             betas = tf.gather_nd(beta_set, timesteps)
             betas = tf.reshape(betas, [batch_size, 1, 1])
@@ -53,9 +86,12 @@ def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
             score, pl_pred, sigma_logits, att = model(x_perturbed, text, tf.sqrt(alphas), style_vectors, training=True)
             model_log_variance = sigma_logits * max_log + (1 - sigma_logits) * min_log
             sigma = tf.exp(model_log_variance)
+            loss = nn.loss_fn(eps, score, pen_lifts, pl_pred, alphas, bce)
         else:
-            score, pl_pred, att = model(x_perturbed, text, tf.sqrt(alphas), style_vectors, training=True)
-        loss = nn.loss_fn(eps, score, pen_lifts, pl_pred, alphas, bce)
+            # simple mse loss
+            alphas = tf.gather_nd(alpha_set, timesteps)
+            score, pl_pred, att = model(x_perturbed, text, tf.sqrt(alpha_bars), style_vectors, training=True)
+            loss = nn.loss_fn(eps, score, pen_lifts, pl_pred, alpha_bars, bce)
         if model.learn_sigma:
             loss += SIGMA_LOSS_COEF * nn.sigma_los_vb(x_perturbed, x, timesteps, alphas, betas, alpha_set, alpha_set_prev, beta_set, beta_bars, score, sigma, train_summary_writer, step=optimizer.iterations)
         
@@ -95,7 +131,7 @@ def calculate_fid(model, images1, images2):
 
 @tf.function
 def validation_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args):
-    model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer = glob_args
+    model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type = glob_args
     if(interpolate_alphas):
         alphas, timesteps = utils.get_alphas(len(x), alpha_set)
     else:
@@ -231,7 +267,7 @@ def pertubate_delta_strokes(delta_strokes):
 val_model = InceptionV3()
 ckpt = './BTTRcustom/checkpoints/pretrained-2014.ckpt'
 lit_model = LitBTTR.load_from_checkpoint(ckpt)
-def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS, print_every=1000, save_every=10000, interpolate_alphas=True, train_summary_writer = None, val_every = None, val_dataset = None, dataset_val = None, pertubate = False, rotate = False):
+def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS, print_every=1000, save_every=10000, interpolate_alphas=True, train_summary_writer = None, val_every = None, val_dataset = None, dataset_val = None, pertubate = False, rotate = False, loss_type='simple'):
     assert DIFF_STEPS == len(alpha_set) == len(beta_set)
     s = time.time()
     bce = tf.keras.losses.BinaryCrossentropy(from_logits=False)
@@ -245,7 +281,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS
         if pertubate:
             strokes = pertubate_delta_strokes(strokes)
             
-        glob_args = model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer
+        glob_args = model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type
         model_out, att = train_step(strokes, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
         
         if optimizer.iterations%print_every==0:
@@ -356,8 +392,8 @@ def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', help='name of the dataset .p file', default='shuffled.p', type=str)
-    parser.add_argument('--num_valsamples', help='number of validation samples', default=320, type=int)
+    parser.add_argument('--dataset', help='name of the dataset .p file', default='new.p', type=str)
+    parser.add_argument('--num_valsamples', help='number of validation samples', default=0, type=int)
     parser.add_argument('--steps', help='number of trainsteps, default 60k', default=60000, type=int)
     parser.add_argument('--batchsize', help='default 96', default=96, type=int)
     parser.add_argument('--seqlen', help='sequence length during training, default 480', default=480, type=int)
@@ -368,7 +404,7 @@ def main():
     parser.add_argument('--num_attlayers', help='number of attentional layers at lowest resolution', default=2, type=int)
     parser.add_argument('--channels', help='number of channels in first layer, default 128', default=128, type=int)
     parser.add_argument('--print_every', help='show train loss every n iters', default=250, type=int)
-    parser.add_argument('--save_every', help='save ckpt every n iters', default=10000, type=int)
+    parser.add_argument('--save_every', help='save ckpt every n iters', default=2500, type=int)
     parser.add_argument('--diffusion_steps', help='number of diffusion steps', default=60, type=int)
     parser.add_argument('--tb_prefix', help='prefix for tensorboard logs', default=None, type=str)
     parser.add_argument('--val_every', help='how often to perform validation', default=None, type=int)
@@ -380,6 +416,7 @@ def main():
     parser.add_argument('--pertubate_strokes', help='pertubate strokes', default=False, type=Boolean)
     parser.add_argument('--rotate_strokes', help='rotate strokes by random angle', default=False, type=Boolean)
     parser.add_argument('--style_extractor', help='which style extractor to use (default mobilenet)', default='mobilenet', type=str)
+    parser.add_argument('--loss_type', help='which loss function to use, possible: simple, vlb, hybrid (default simple)', default='simple', type=str)
    
     args = parser.parse_args()
     DATASET = args.dataset
@@ -405,6 +442,7 @@ def main():
     PERTUBATE = args.pertubate_strokes
     ROTATE = args.rotate_strokes
     STYLE_EXTRACTOR = args.style_extractor
+    LOSS_TYPE = args.loss_type
 
     assert NOISE_SHEDULE in ['default', 'cosine']
     C1 = args.channels
@@ -424,12 +462,15 @@ def main():
     tokenizer = utils.Tokenizer()
     if NOISE_SHEDULE == 'cosine':
         beta_set = utils.get_cosine_beta_set(DIFF_STEPS)
-        alpha_set = utils.get_cosine_alpha_set(DIFF_STEPS)
+        alpha_set = 1 - beta_set#utils.get_cosine_alpha_set(DIFF_STEPS)
     elif(NOISE_SHEDULE == 'default'):
         beta_set = utils.get_beta_set(DIFF_STEPS)
         alpha_set = tf.math.cumprod(1-beta_set)
     else:
         raise ValueError('Noise shedule not supported')
+
+    print(beta_set)
+    assert (beta_set > 0).all() and (beta_set <= 1).all()
 
     if STYLE_EXTRACTOR == 'mobilenet':
         style_extractor = nn.StyleExtractor()
@@ -462,7 +503,7 @@ def main():
         dataset, style_vectors, dataset_val = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE, NUM_VAL_SAMPLES)
 
     val_dataset = {'texts': texts, 'samples': unpadded, 'style_vectors': style_vectors}
-    train(dataset, NUM_STEPS, model, optimizer, alpha_set, beta_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, INTERPOLATE_ALPHAS, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset, dataset_val=dataset_val, pertubate=PERTUBATE, rotate=ROTATE)
+    train(dataset, NUM_STEPS, model, optimizer, alpha_set, beta_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, INTERPOLATE_ALPHAS, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset, dataset_val=dataset_val, pertubate=PERTUBATE, rotate=ROTATE, loss_type=LOSS_TYPE)
 
 if __name__ == '__main__':
     main()

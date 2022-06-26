@@ -40,7 +40,7 @@ def loss_fn(eps, score_pred, pl, pl_pred, abar, bce):
     return score_loss + pl_loss
 
 def kl_gaussian(mu1, sigma1, mu2, sigma2):
-    c = tf.log(sigma2/sigma1)
+    c = tf.math.log(sigma2/sigma1)
     a = (sigma1 ** 2 + ((mu1 - mu2) ** 2))
     b = 2*(sigma2**2)
     return c + (a / b) - 0.5
@@ -51,15 +51,19 @@ def ce_gaussian(x_0, mean, variance, train_summary_writer=None, step=None):
     with train_summary_writer.as_default():
         diff = mean - x_0
         tf.summary.scalar('diff', tf.reduce_mean(diff), step=step)
+        #tf.print("diff", diff)
         dist = tfd.Normal(loc=mean, scale=variance)
         
         lower_bound = dist.cdf(mean - diff)
         tf.summary.scalar('lower_bound', tf.reduce_mean(lower_bound), step=step)
+        #tf.print("lower_bound", lower_bound)
         uppder_bound = dist.cdf(mean + diff)
         tf.summary.scalar('uppder_bound', tf.reduce_mean(uppder_bound), step=step)
+        #tf.print("uppder_bound", uppder_bound)
         logits = 1 - tf.math.abs(uppder_bound - lower_bound)
         tf.summary.scalar('logits', tf.reduce_mean(logits), step=step)
-        return -tf.math.log(logits)
+        #tf.print("logits", logits)
+        return -tf.math.log(logits + 0.00001)
 
 def kl_gaussian(mu1, sigma1, mu2, sigma2):
     c = tf.math.log(sigma2/sigma1)
@@ -67,38 +71,107 @@ def kl_gaussian(mu1, sigma1, mu2, sigma2):
     b = 2*(sigma2**2)
     return c + (a / b) - 0.5
 
-def sigma_los_vb(x_t, x_0, t, alphas, betas, alpha_set, alpha_set_prev, beta_set, beta_bars, pred_mean, pred_var, train_summary_writer, step):
+def approx_standard_normal_cdf(x):
+    return 0.5 * (1.0 + tf.tanh(np.sqrt(2.0 / np.pi) * (x + 0.044715 * tf.pow(x, 3))))
+
+def continous_gaussian_log_likelihood(x, means, log_scales):
+    assert x.shape == means.shape == log_scales.shape
+    centered_x = x - means
+    inv_stdv = tf.exp(-log_scales)
+    plus_in = inv_stdv * (centered_x + 1.)
+    cdf_plus = approx_standard_normal_cdf(plus_in)
+    min_in = inv_stdv * (centered_x - 1.)
+    cdf_min = approx_standard_normal_cdf(min_in)
+    log_cdf_plus = tf.math.log(tf.maximum(cdf_plus, 1e-12))
+    log_one_minus_cdf_min = tf.math.log(tf.maximum(1. - cdf_min, 1e-12))
+    cdf_delta = cdf_plus - cdf_min
+    log_probs = tf.where(
+    x < -0.999, log_cdf_plus,
+    tf.where(x > 0.999, log_one_minus_cdf_min,
+                tf.math.log(tf.maximum(cdf_delta, 1e-12))))
+    assert log_probs.shape == x.shape
+    return log_probs
+
+'''def normal_kl_log(mean1, logvar1, mean2, logvar2):
+  """
+  KL divergence between normal distributions parameterized by mean and log-variance.
+  """
+  return 0.5 * (-1.0 + logvar2 - logvar1 + tf.exp(logvar1 - logvar2)
+                + tf.math.squared_difference(mean1, mean2) * tf.exp(-logvar2))'''
+
+def normal_kl_log(mean1, logvar1, mean2, logvar2):
+    """
+    KL divergence between normal distributions parameterized by mean and log-variance.
+    """
+    coef_1 = (-1.0 + logvar2 - logvar1 + tf.exp(logvar1 - logvar2))
+    coef_2 = tf.math.squared_difference(mean1, mean2)
+    coef_3 = tf.exp(-logvar2)
+    coef_4 = (coef_1 + tf.transpose(coef_2) * coef_3)
+    coef_4 = tf.transpose(coef_4)
+
+    return 0.5 * coef_4
+                
+
+def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, beta_set, beta_bars_log, pred_mean, pred_log_var, train_summary_writer, step):
     # for t > 0
     # KL Divergence between true and predicted gaussians
     batch_size = len(x_t)
-    alpha_set_prev_sqrt = tf.math.sqrt(alpha_set_prev)
-    alpha_set_sqrt = tf.math.sqrt(alpha_set)
-    mean_coef_1_set = (alpha_set_prev_sqrt * beta_set) / (1 - alpha_set)
-    mean_coef_2_set = (alpha_set_sqrt * (1 - alpha_set_prev)) / (1 - alpha_set)
+    alpha_bars_set_prev_sqrt = tf.math.sqrt(alpha_bars_set_prev)
+    alpha_bars_set_sqrt = tf.math.sqrt(alpha_bars_set)
+    mean_coef_1_set = (alpha_bars_set_prev_sqrt * beta_set) / (1 - alpha_bars_set)
+    mean_coef_2_set = (tf.sqrt(alpha_set) * (1 - alpha_bars_set_prev)) / (1 - alpha_bars_set)
     mean_coef1 = tf.gather_nd(mean_coef_1_set, t)
     mean_coef2 = tf.gather_nd(mean_coef_2_set, t)
     mean_coef1 = tf.reshape(mean_coef1, [batch_size, 1, 1])
     mean_coef2 = tf.reshape(mean_coef2, [batch_size, 1, 1])
 
+    #tf.print("alpha_bars_set: ", alpha_bars_set)
+    #tf.print("mean_coef_1_set: ", mean_coef_1_set)
+    #tf.print("mean_coef1 nan: ", tf.math.reduce_sum (tf.cast(tf.math.is_nan(mean_coef1), tf.int32)) > 0)
+    #tf.print("mean_coef1 inf: ", tf.math.reduce_sum (tf.cast(tf.math.is_inf(mean_coef1), tf.int32)) > 0)
+    #tf.print("mean_coef2 nan: ", tf.math.reduce_sum (tf.cast(tf.math.is_nan(mean_coef2), tf.int32)) > 0)
+    #tf.print("mean_coef2 inf: ", tf.math.reduce_sum (tf.cast(tf.math.is_inf(mean_coef2), tf.int32)) > 0)
+
     true_mean = mean_coef1 * x_0 + mean_coef2 * x_t
-    true_variance = beta_bars
-    kl = kl_gaussian(true_mean, true_variance, pred_mean, pred_var)
+    true_variance_log = beta_bars_log
+    #tf.print("true_mean.shape", true_mean.shape)
+    #tf.print("true_mean nan: ", tf.math.reduce_sum (tf.cast(tf.math.is_nan(true_mean), tf.int32)) > 0)
+    #tf.print("true_mean inf: ", tf.math.reduce_sum (tf.cast(tf.math.is_inf(true_mean), tf.int32)) > 0)
+    #tf.print("true_variance_log.shape", true_variance_log.shape)
+    #tf.print("true_variance_log nan: ", tf.math.reduce_sum (tf.cast(tf.math.is_nan(true_variance_log), tf.int32)) > 0)
+    #tf.print("true_variance_log inf: ", tf.math.reduce_sum (tf.cast(tf.math.is_inf(true_variance_log), tf.int32)) > 0)
+    #tf.print("pred_mean.shape", pred_mean.shape)
+    #tf.print("pred_mean nan: ", tf.math.reduce_sum (tf.cast(tf.math.is_nan(pred_mean), tf.int32)) > 0)
+    #tf.print("pred_mean inf: ", tf.math.reduce_sum (tf.cast(tf.math.is_inf(pred_mean), tf.int32)) > 0)
+    #tf.print("pred_log_var.shape", pred_log_var.shape)
+    #tf.print("pred_log_var nan: ", tf.math.reduce_sum (tf.cast(tf.math.is_nan(true_variance_log), tf.int32)) > 0)
+    #tf.print("pred_log_var inf: ", tf.math.reduce_sum (tf.cast(tf.math.is_inf(true_variance_log), tf.int32)) > 0)
+    kl = normal_kl_log(true_mean, true_variance_log, pred_mean, pred_log_var)
 
     # for t = 0
     # negtive log likelihood of gaussian & first sample
-    nll = ce_gaussian(x_0, pred_mean, pred_var, train_summary_writer, step)
+    #nll = ce_gaussian(x_0, pred_mean, pred_var, train_summary_writer, step)
+
+    b = tf.expand_dims(pred_log_var, axis=1) # [BS, 1]
+    c = tf.expand_dims(b, axis=2)          # [BS, 1, 1]
+    pred_log_var = tf.tile(c, (1, 488, 2)) # [BS, 488, 2]
+
+    nll = -continous_gaussian_log_likelihood(x_0, pred_mean, pred_log_var)
 
     # tensorboard logging
     n_tn0 = tf.math.count_nonzero(t[:,0])
     n_t0 = batch_size - n_tn0
     nll_mean = tf.math.reduce_sum(nll) / tf.cast(n_t0, tf.float32)
+    #tf.print("n_t0", n_t0)
+    #tf.print("nll_mean", nll_mean)
     kl_mean = tf.math.reduce_sum(kl) / tf.cast(n_tn0, tf.float32)
+    #tf.print("kl_mean", kl_mean)
+    '''
     with train_summary_writer.as_default():
         tf.summary.scalar('nll_mean', nll_mean * 0.001, step=step)
         tf.summary.scalar('kl_mean', kl_mean * 0.001, step=step)
         tf.summary.scalar('pred_mean', tf.math.reduce_mean(pred_mean), step=step)
-        tf.summary.scalar('pred_var', tf.math.reduce_mean(pred_var), step=step)
-
+        tf.summary.scalar('pred_var', tf.math.reduce_mean(pred_var), step=step)'''
 
     sigma_loss = tf.where([t]==0, nll, kl)
     sigma_loss = tf.math.reduce_mean(sigma_loss)
