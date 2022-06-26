@@ -67,7 +67,9 @@ def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
             tf.print("score", score.shape)
             #model_log_variance = sigma_logits * max_log + (1 - sigma_logits) * min_log
             #sigma = tf.exp(model_log_variance)
-            loss = nn.sigma_los_vb(x_perturbed, x, timesteps, alpha_set, alpha_bars_set, alpha_bar_set_prev, beta_set, beta_bars_log, score, model_log_variance, train_summary_writer, step=optimizer.iterations)
+            vlb = nn.sigma_los_vb(x_perturbed, x, timesteps, alpha_set, alpha_bars_set, alpha_bar_set_prev, beta_set, beta_bars_log, score, model_log_variance, train_summary_writer, step=optimizer.iterations)
+            pl_loss = tf.reduce_mean(bce(pen_lifts, pl_pred) * tf.squeeze(alpha_bars, -1))
+            loss = vlb + pl_loss
         elif model.learn_sigma:
             # hybrid loss
             batch_size = len(x)
