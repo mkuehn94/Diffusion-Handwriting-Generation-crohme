@@ -161,22 +161,10 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
     # tensorboard logging
     n_tn0 = tf.math.count_nonzero(t[:,0])
     n_t0 = batch_size - n_tn0
-    nll_mean = tf.math.reduce_sum(nll) / tf.cast(n_t0, tf.float32)
-    #tf.print("n_t0", n_t0)
-    #tf.print("nll_mean", nll_mean)
-    kl_mean = tf.math.reduce_sum(kl) / tf.cast(n_tn0, tf.float32)
-    #tf.print("kl_mean", kl_mean)
-    '''
-    with train_summary_writer.as_default():
-        tf.summary.scalar('nll_mean', nll_mean * 0.001, step=step)
-        tf.summary.scalar('kl_mean', kl_mean * 0.001, step=step)
-        tf.summary.scalar('pred_mean', tf.math.reduce_mean(pred_mean), step=step)
-        tf.summary.scalar('pred_var', tf.math.reduce_mean(pred_var), step=step)'''
 
-    sigma_loss = tf.where([t]==0, nll, kl)
+    sigma_loss = tf.where(tf.expand_dims(t,axis=2)==0, nll, kl)
+
     sigma_loss = tf.math.reduce_mean(sigma_loss)
-    with train_summary_writer.as_default():
-        tf.summary.scalar('sigma_loss', sigma_loss * 0.001, step=step)
     return sigma_loss
     
 def scaled_dp_attn(q, k, v, mask):
