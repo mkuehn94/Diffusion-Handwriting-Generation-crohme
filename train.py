@@ -26,25 +26,21 @@ SIGMA_LOSS_COEF = 0.001
 
 @tf.function
 def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args):
-    model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type = glob_args
+    model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type, history = glob_args
     alpha_bars_set = tf.math.cumprod(alpha_set)
     if(interpolate_alphas):
         alpha_bars, timesteps = utils.get_alphas(len(x), alpha_bars_set)
     else:
         alpha_bars, timesteps = utils.get_alphas_new(len(x), alpha_bars_set)
-    #tf.print('alphas: ', alphas)
     eps = tf.random.normal(tf.shape(x))
     x_perturbed = tf.sqrt(alpha_bars) * x 
     x_perturbed += tf.sqrt(1 - alpha_bars) * eps
-    
+
     with tf.GradientTape() as tape:
         # calculate loss
 
         if loss_type == "vlb":
             batch_size = len(x)
-            betas = tf.gather_nd(beta_set, timesteps)
-            betas = tf.reshape(betas, [batch_size, 1, 1])
-            #alpha_bars = tf.gather_nd(alpha_bars_set, timesteps)
             
             alpha_bar_set_prev = tf.concat(values=([1], alpha_bars_set[:-1]), axis=0)
 
@@ -52,12 +48,14 @@ def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
             beta_bar_set_log_clipped = tf.math.log(tf.concat(values=([beta_bar_set[1]], beta_bar_set[1:]), axis=0))
 
             model_log_variance = tf.gather_nd(beta_bar_set_log_clipped, timesteps) #shape: BATCH_SIZE
+            model_log_variance = tf.reshape(model_log_variance, [batch_size, 1, 1])
             # [96] -> [96, 488, 2]
             #b = tf.expand_dims(model_log_variance, axis=1) # [BS, 1]
             #c = tf.expand_dims(b, axis=2)          # [BS, 1, 1]
             #model_log_variance = tf.tile(c, (1, 488, 2))
 
             beta_bars_log = tf.gather_nd(beta_bar_set_log_clipped, timesteps)
+            beta_bars_log = tf.reshape(beta_bars_log, [batch_size, 1, 1])
             #beta_bars = tf.reshape(beta_bars, [batch_size, 1, 1])
 
             #min_log = tf.math.log(beta_bars)
@@ -67,8 +65,13 @@ def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
             tf.print("score", score.shape)
             #model_log_variance = sigma_logits * max_log + (1 - sigma_logits) * min_log
             #sigma = tf.exp(model_log_variance)
-            vlb = nn.sigma_los_vb(x_perturbed, x, timesteps, alpha_set, alpha_bars_set, alpha_bar_set_prev, beta_set, beta_bars_log, score, model_log_variance, train_summary_writer, step=optimizer.iterations)
+            vlb = nn.sigma_los_vb(x_perturbed, x, timesteps, alpha_set, alpha_bars_set, alpha_bar_set_prev, beta_set, beta_bars_log, score, model_log_variance, history, train_summary_writer, step=optimizer.iterations)
+            
+
             pl_loss = tf.reduce_mean(bce(pen_lifts, pl_pred) * tf.squeeze(alpha_bars, -1))
+            with train_summary_writer.as_default():
+                tf.summary.scalar('pl_loss', pl_loss, step=optimizer.iterations)
+                tf.summary.scalar('vlb', vlb, step=optimizer.iterations)
             loss = vlb + pl_loss
         elif model.learn_sigma:
             # hybrid loss
@@ -93,7 +96,13 @@ def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
             # simple mse loss
             alphas = tf.gather_nd(alpha_set, timesteps)
             score, pl_pred, att = model(x_perturbed, text, tf.sqrt(alpha_bars), style_vectors, training=True)
-            loss = nn.loss_fn(eps, score, pen_lifts, pl_pred, alpha_bars, bce)
+            loss_simple = tf.reduce_mean(tf.reduce_sum(tf.square(eps - score), axis=-1))
+            pl_loss = tf.reduce_mean(bce(pen_lifts, pl_pred) * tf.squeeze(alpha_bars, -1))
+            with train_summary_writer.as_default():
+                tf.summary.scalar('pl_loss', pl_loss, step=optimizer.iterations)
+                tf.summary.scalar('loss_simple', loss_simple, step=optimizer.iterations)
+            loss = loss_simple + pl_loss
+            #loss = nn.loss_fn(eps, score, pen_lifts, pl_pred, alpha_bars, bce)
         if model.learn_sigma:
             loss += SIGMA_LOSS_COEF * nn.sigma_los_vb(x_perturbed, x, timesteps, alphas, betas, alpha_set, alpha_set_prev, beta_set, beta_bars, score, sigma, train_summary_writer, step=optimizer.iterations)
         
@@ -133,7 +142,7 @@ def calculate_fid(model, images1, images2):
 
 @tf.function
 def validation_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args):
-    model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type = glob_args
+    model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type, history = glob_args
     if(interpolate_alphas):
         alphas, timesteps = utils.get_alphas(len(x), alpha_set)
     else:
@@ -141,7 +150,7 @@ def validation_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_
     eps = tf.random.normal(tf.shape(x))
     x_perturbed = tf.sqrt(alphas) * x 
     x_perturbed += tf.sqrt(1 - alphas) * eps
-    
+
     #with tf.GradientTape() as tape:
     if model.learn_sigma:
         batch_size = len(x)
@@ -275,6 +284,8 @@ def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS
     bce = tf.keras.losses.BinaryCrossentropy(from_logits=False)
     train_loss = tf.keras.metrics.Mean()
     val_loss = tf.keras.metrics.Mean()
+    history = np.full((DIFF_STEPS, 10), np.nan)
+    #history = [[np.nan] * 10 for i in range(60)]
     for count, (strokes, text, style_vectors) in enumerate(dataset.repeat(5000)):
         if rotate:
             angle = random.uniform(-np.pi/12, np.pi/12)
@@ -283,7 +294,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS
         if pertubate:
             strokes = pertubate_delta_strokes(strokes)
             
-        glob_args = model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type
+        glob_args = model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type, history
         model_out, att = train_step(strokes, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
         
         if optimizer.iterations%print_every==0:

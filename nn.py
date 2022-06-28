@@ -75,29 +75,24 @@ def approx_standard_normal_cdf(x):
     return 0.5 * (1.0 + tf.tanh(np.sqrt(2.0 / np.pi) * (x + 0.044715 * tf.pow(x, 3))))
 
 def continous_gaussian_log_likelihood(x, means, log_scales):
-    assert x.shape == means.shape == log_scales.shape
+    #assert x.shape == means.shape == log_scales.shape
     centered_x = x - means
     inv_stdv = tf.exp(-log_scales)
-    plus_in = inv_stdv * (centered_x + 1.)
+    plus_in = inv_stdv * (centered_x + 1)
     cdf_plus = approx_standard_normal_cdf(plus_in)
-    min_in = inv_stdv * (centered_x - 1.)
+    min_in = inv_stdv * (centered_x - 1)
     cdf_min = approx_standard_normal_cdf(min_in)
-    log_cdf_plus = tf.math.log(tf.maximum(cdf_plus, 1e-12))
-    log_one_minus_cdf_min = tf.math.log(tf.maximum(1. - cdf_min, 1e-12))
+    #log_cdf_plus = tf.math.log(tf.maximum(cdf_plus, 1e-12))
+    #log_one_minus_cdf_min = tf.math.log(tf.maximum(1. - cdf_min, 1e-12))
     cdf_delta = cdf_plus - cdf_min
-    log_probs = tf.where(
-    x < -0.999, log_cdf_plus,
-    tf.where(x > 0.999, log_one_minus_cdf_min,
-                tf.math.log(tf.maximum(cdf_delta, 1e-12))))
-    assert log_probs.shape == x.shape
-    return log_probs
+    return tf.math.log(tf.maximum(cdf_delta, 1e-12)) * 1000
 
-'''def normal_kl_log(mean1, logvar1, mean2, logvar2):
+def normal_kl_log_2(mean1, logvar1, mean2, logvar2):
   """
   KL divergence between normal distributions parameterized by mean and log-variance.
   """
   return 0.5 * (-1.0 + logvar2 - logvar1 + tf.exp(logvar1 - logvar2)
-                + tf.math.squared_difference(mean1, mean2) * tf.exp(-logvar2))'''
+                + tf.math.squared_difference(mean1, mean2) * tf.exp(-logvar2))
 
 def normal_kl_log(mean1, logvar1, mean2, logvar2):
     """
@@ -112,12 +107,12 @@ def normal_kl_log(mean1, logvar1, mean2, logvar2):
     return 0.5 * coef_4
                 
 
-def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, beta_set, beta_bars_log, pred_mean, pred_log_var, train_summary_writer, step):
+def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, beta_set, beta_bars_log, pred_mean, pred_log_var, history, train_summary_writer, step):
     # for t > 0
     # KL Divergence between true and predicted gaussians
     batch_size = len(x_t)
     alpha_bars_set_prev_sqrt = tf.math.sqrt(alpha_bars_set_prev)
-    alpha_bars_set_sqrt = tf.math.sqrt(alpha_bars_set)
+    #alpha_bars_set_sqrt = tf.math.sqrt(alpha_bars_set)
     mean_coef_1_set = (alpha_bars_set_prev_sqrt * beta_set) / (1 - alpha_bars_set)
     mean_coef_2_set = (tf.sqrt(alpha_set) * (1 - alpha_bars_set_prev)) / (1 - alpha_bars_set)
     mean_coef1 = tf.gather_nd(mean_coef_1_set, t)
@@ -146,15 +141,15 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
     #tf.print("pred_log_var.shape", pred_log_var.shape)
     #tf.print("pred_log_var nan: ", tf.math.reduce_sum (tf.cast(tf.math.is_nan(true_variance_log), tf.int32)) > 0)
     #tf.print("pred_log_var inf: ", tf.math.reduce_sum (tf.cast(tf.math.is_inf(true_variance_log), tf.int32)) > 0)
-    kl = normal_kl_log(true_mean, true_variance_log, pred_mean, pred_log_var)
+    kl = normal_kl_log_2(true_mean, true_variance_log, pred_mean, pred_log_var)
 
     # for t = 0
     # negtive log likelihood of gaussian & first sample
     #nll = ce_gaussian(x_0, pred_mean, pred_var, train_summary_writer, step)
 
-    b = tf.expand_dims(pred_log_var, axis=1) # [BS, 1]
-    c = tf.expand_dims(b, axis=2)          # [BS, 1, 1]
-    pred_log_var = tf.tile(c, (1, 488, 2)) # [BS, 488, 2]
+    #b = tf.expand_dims(pred_log_var, axis=1) # [BS, 1]
+    #c = tf.expand_dims(b, axis=2)          # [BS, 1, 1]
+    #pred_log_var = tf.tile(c, (1, 488, 2)) # [BS, 488, 2]
 
     nll = -continous_gaussian_log_likelihood(x_0, pred_mean, pred_log_var)
 
@@ -163,6 +158,34 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
     n_t0 = batch_size - n_tn0
 
     sigma_loss = tf.where(tf.expand_dims(t,axis=2)==0, nll, kl)
+
+    if False:
+        # keep track of individual loss terms
+        loss_terms = tf.math.reduce_mean(sigma_loss, axis=1)
+        loss_terms = tf.math.reduce_mean(loss_terms, axis=1)
+        #tf.print("loss_terms[0]: ", loss_terms[0])
+        loss_terms = loss_terms.numpy()
+        for (ts, loss_term) in zip(t, loss_terms):
+            ts = int(ts)
+            if np.nan in history[ts]:
+                history[ts][history[ts].index(np.nan)] = loss_term
+            else:
+                #history[ts] = history[ts][1:] + [loss_term]
+                history[ts] = np.append(history[ts][1:], loss_term)
+        #print("history[0] = ", list(history[0]))
+        #warmed_up = not any(np.nan in hist for hist in history)
+        warmed_up = not np.isnan(history).any()
+        print("warmed up: ", warmed_up)
+        if warmed_up:
+            weights = np.mean(history, axis=1)
+            weight_terms = weights[t]
+            weight_terms = weight_terms[:,0]
+            loss_terms /= weight_terms
+            print(np.mean(history, axis=1))
+
+    #print(loss_terms.numpy())
+    #tf.print("loss_terms: ", loss_terms)
+
 
     sigma_loss = tf.math.reduce_mean(sigma_loss)
     return sigma_loss
