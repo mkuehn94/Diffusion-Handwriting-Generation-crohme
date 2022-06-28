@@ -75,17 +75,15 @@ def approx_standard_normal_cdf(x):
     return 0.5 * (1.0 + tf.tanh(np.sqrt(2.0 / np.pi) * (x + 0.044715 * tf.pow(x, 3))))
 
 def continous_gaussian_log_likelihood(x, means, log_scales):
-    #assert x.shape == means.shape == log_scales.shape
     centered_x = x - means
     inv_stdv = tf.exp(-log_scales)
-    plus_in = inv_stdv * (centered_x + 1)
+    plus_in = inv_stdv * (centered_x + 0.00001)
     cdf_plus = approx_standard_normal_cdf(plus_in)
-    min_in = inv_stdv * (centered_x - 1)
+    min_in = inv_stdv * (centered_x - 0.00001)
     cdf_min = approx_standard_normal_cdf(min_in)
-    #log_cdf_plus = tf.math.log(tf.maximum(cdf_plus, 1e-12))
-    #log_one_minus_cdf_min = tf.math.log(tf.maximum(1. - cdf_min, 1e-12))
     cdf_delta = cdf_plus - cdf_min
-    return tf.math.log(tf.maximum(cdf_delta, 1e-12)) * 1000
+    return tf.math.log(tf.maximum(cdf_delta, 1e-12))
+
 
 def normal_kl_log_2(mean1, logvar1, mean2, logvar2):
   """
@@ -117,6 +115,7 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
     mean_coef_2_set = (tf.sqrt(alpha_set) * (1 - alpha_bars_set_prev)) / (1 - alpha_bars_set)
     mean_coef1 = tf.gather_nd(mean_coef_1_set, t)
     mean_coef2 = tf.gather_nd(mean_coef_2_set, t)
+
     mean_coef1 = tf.reshape(mean_coef1, [batch_size, 1, 1])
     mean_coef2 = tf.reshape(mean_coef2, [batch_size, 1, 1])
 
@@ -141,7 +140,17 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
     #tf.print("pred_log_var.shape", pred_log_var.shape)
     #tf.print("pred_log_var nan: ", tf.math.reduce_sum (tf.cast(tf.math.is_nan(true_variance_log), tf.int32)) > 0)
     #tf.print("pred_log_var inf: ", tf.math.reduce_sum (tf.cast(tf.math.is_inf(true_variance_log), tf.int32)) > 0)
-    kl = normal_kl_log_2(true_mean, true_variance_log, pred_mean, pred_log_var)
+
+    pred_mean_coef1_set = 1 / (tf.sqrt(alpha_set))
+    pred_mean_coef2_set = (beta_set / tf.sqrt(1 - alpha_bars_set))
+    pred_mean_coef1 = tf.gather_nd(pred_mean_coef1_set, t)
+    pred_mean_coef2 = tf.gather_nd(pred_mean_coef2_set, t)
+
+    pred_mean_coef1 = tf.reshape(pred_mean_coef1, [batch_size, 1, 1])
+    pred_mean_coef2 = tf.reshape(pred_mean_coef2, [batch_size, 1, 1])
+    pred_mean_param = pred_mean_coef1 * (x_t - pred_mean_coef2 * pred_mean)
+
+    kl = normal_kl_log_2(true_mean, true_variance_log, pred_mean_param, pred_log_var)
 
     # for t = 0
     # negtive log likelihood of gaussian & first sample
@@ -151,7 +160,11 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
     #c = tf.expand_dims(b, axis=2)          # [BS, 1, 1]
     #pred_log_var = tf.tile(c, (1, 488, 2)) # [BS, 488, 2]
 
-    nll = -continous_gaussian_log_likelihood(x_0, pred_mean, pred_log_var)
+    nll = -continous_gaussian_log_likelihood(x_0, pred_mean_param, pred_log_var * 0.5)
+    #dist = tfd.Normal(loc=pred_mean_param, scale=tf.math.sqrt(tf.math.exp(pred_log_var * 0.5)))
+    #print('prob: ', dist.prob(x_0))
+    #print('log_prob: ', tf.math.log(tf.math.maximum(dist.prob(x_0), 1e-12)))
+    #nll = -tf.math.log(tf.math.maximum(dist.prob(x_0), 1e-12))
 
     # tensorboard logging
     n_tn0 = tf.math.count_nonzero(t[:,0])
@@ -172,7 +185,8 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
             else:
                 #history[ts] = history[ts][1:] + [loss_term]
                 history[ts] = np.append(history[ts][1:], loss_term)
-        #print("history[0] = ", list(history[0]))
+        print("history[0] = ", list(history[0]))
+        print("history[1] = ", list(history[1]))
         #warmed_up = not any(np.nan in hist for hist in history)
         warmed_up = not np.isnan(history).any()
         print("warmed up: ", warmed_up)
