@@ -105,7 +105,7 @@ def normal_kl_log(mean1, logvar1, mean2, logvar2):
     return 0.5 * coef_4
                 
 
-def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, beta_set, beta_bars_log, pred_mean, pred_log_var, history, train_summary_writer, step):
+def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, beta_set, beta_bars_log, pred_mean, pred_log_var, history, importance_sampling, train_summary_writer, step):
     # for t > 0
     # KL Divergence between true and predicted gaussians
     batch_size = len(x_t)
@@ -141,6 +141,17 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
     #tf.print("pred_log_var nan: ", tf.math.reduce_sum (tf.cast(tf.math.is_nan(true_variance_log), tf.int32)) > 0)
     #tf.print("pred_log_var inf: ", tf.math.reduce_sum (tf.cast(tf.math.is_inf(true_variance_log), tf.int32)) > 0)
 
+    """pred_x0_coef1_set = tf.sqrt(1.0 / alpha_bars_set)
+    pred_x0_coef2_set = tf.sqrt(1.0 / alpha_bars_set - 1)
+    pred_x0_coef1 = tf.gather_nd(pred_x0_coef1_set, t)
+    pred_x0_coef2 = tf.gather_nd(pred_x0_coef2_set, t)
+
+    pred_x0_coef1 = tf.reshape(pred_x0_coef1, [batch_size, 1, 1])
+    pred_x0_coef2 = tf.reshape(pred_x0_coef2, [batch_size, 1, 1])
+    pred_x0 = pred_x0_coef1 * x_t - pred_x0_coef2 * pred_mean
+    pred_mean_param = mean_coef1 * pred_x0 + mean_coef2 * x_t"""
+
+    
     pred_mean_coef1_set = 1 / (tf.sqrt(alpha_set))
     pred_mean_coef2_set = (beta_set / tf.sqrt(1 - alpha_bars_set))
     pred_mean_coef1 = tf.gather_nd(pred_mean_coef1_set, t)
@@ -149,6 +160,13 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
     pred_mean_coef1 = tf.reshape(pred_mean_coef1, [batch_size, 1, 1])
     pred_mean_coef2 = tf.reshape(pred_mean_coef2, [batch_size, 1, 1])
     pred_mean_param = pred_mean_coef1 * (x_t - pred_mean_coef2 * pred_mean)
+
+    """for ts, ind in enumerate(t.numpy()):
+        if ind[0] == 59:
+            print('true_mean: ', true_mean[ts][0:5])
+            print('pred_mean_param: ', pred_mean_param[ts][0:5])
+            print('pred_mean_coef1: ', pred_mean_coef1[ts][0:5])
+            print('pred_mean_coef2: ', pred_mean_coef2[ts][0:5])"""
 
     kl = normal_kl_log_2(true_mean, true_variance_log, pred_mean_param, pred_log_var)
 
@@ -172,30 +190,52 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
 
     sigma_loss = tf.where(tf.expand_dims(t,axis=2)==0, nll, kl)
 
-    if False:
+    if importance_sampling:
         # keep track of individual loss terms
         loss_terms = tf.math.reduce_mean(sigma_loss, axis=1)
         loss_terms = tf.math.reduce_mean(loss_terms, axis=1)
         #tf.print("loss_terms[0]: ", loss_terms[0])
-        loss_terms = loss_terms.numpy()
-        for (ts, loss_term) in zip(t, loss_terms):
+        #loss_terms = loss_terms
+        for (ts, loss_term) in zip(t, loss_terms.numpy()):
             ts = int(ts)
             if np.nan in history[ts]:
                 history[ts][history[ts].index(np.nan)] = loss_term
             else:
                 #history[ts] = history[ts][1:] + [loss_term]
                 history[ts] = np.append(history[ts][1:], loss_term)
-        print("history[0] = ", list(history[0]))
-        print("history[1] = ", list(history[1]))
+        #print("history[0] = ", list(history[0]))
+        #print("history[1] = ", list(history[1]))
         #warmed_up = not any(np.nan in hist for hist in history)
         warmed_up = not np.isnan(history).any()
-        print("warmed up: ", warmed_up)
+        #print("warmed up: ", warmed_up)
         if warmed_up:
             weights = np.mean(history, axis=1)
             weight_terms = weights[t]
             weight_terms = weight_terms[:,0]
             loss_terms /= weight_terms
-            print(np.mean(history, axis=1))
+            #print(weights)
+            nll_loss = weights[0]
+            kl_loss = np.mean(weights[1:]) / (batch_size - 1)
+            #print("nll loss: ", nll_loss)
+            #print("kl loss: ", kl_loss)
+            #print("loss[0]: ", weights[0])
+            #print("loss[1]: ", weights[1])
+            #print("loss[59]: ", weights[59])
+            with train_summary_writer.as_default():
+                tf.summary.scalar('nll_loss', nll_loss, step=step)
+                tf.summary.scalar('kl_loss', kl_loss, step=step)
+                tf.summary.scalar('loss[0]', weights[0], step=step)
+                tf.summary.scalar('loss[1]', weights[1], step=step)
+                tf.summary.scalar('loss[59]', weights[59], step=step)
+
+            weights = np.sqrt(np.mean(history ** 2, axis=1))
+            weights /= np.sum(weights)
+            weights *= 1 - 0.001
+            weights += 0.001 / len(weights)
+            weight_terms = weights[t]
+            weight_terms = weight_terms[:,0]
+            loss_terms *= tf.constant(weight_terms, dtype=tf.float32)
+            return tf.math.reduce_mean(loss_terms)
 
     #print(loss_terms.numpy())
     #tf.print("loss_terms: ", loss_terms)

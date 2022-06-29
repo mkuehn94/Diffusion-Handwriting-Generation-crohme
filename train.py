@@ -24,9 +24,9 @@ from bttr.lit_bttr import LitBTTR
 
 SIGMA_LOSS_COEF = 0.001
 
-@tf.function
+#@tf.function
 def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args):
-    model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type, history = glob_args
+    model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type, history, importance_sampling = glob_args
     alpha_bars_set = tf.math.cumprod(alpha_set)
     if(interpolate_alphas):
         alpha_bars, timesteps = utils.get_alphas(len(x), alpha_bars_set)
@@ -65,7 +65,7 @@ def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
             tf.print("score", score.shape)
             #model_log_variance = sigma_logits * max_log + (1 - sigma_logits) * min_log
             #sigma = tf.exp(model_log_variance)
-            vlb = nn.sigma_los_vb(x_perturbed, x, timesteps, alpha_set, alpha_bars_set, alpha_bar_set_prev, beta_set, beta_bars_log, score, model_log_variance, history, train_summary_writer, step=optimizer.iterations)
+            vlb = nn.sigma_los_vb(x_perturbed, x, timesteps, alpha_set, alpha_bars_set, alpha_bar_set_prev, beta_set, beta_bars_log, score, model_log_variance, history, importance_sampling, train_summary_writer, step=optimizer.iterations)
             
 
             pl_loss = tf.reduce_mean(bce(pen_lifts, pl_pred) * tf.squeeze(alpha_bars, -1))
@@ -278,7 +278,7 @@ def pertubate_delta_strokes(delta_strokes):
 val_model = InceptionV3()
 ckpt = './BTTRcustom/checkpoints/pretrained-2014.ckpt'
 lit_model = LitBTTR.load_from_checkpoint(ckpt)
-def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS, print_every=1000, save_every=10000, interpolate_alphas=True, train_summary_writer = None, val_every = None, val_dataset = None, dataset_val = None, pertubate = False, rotate = False, loss_type='simple'):
+def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS, print_every=1000, save_every=10000, interpolate_alphas=True, train_summary_writer = None, val_every = None, val_dataset = None, dataset_val = None, pertubate = False, rotate = False, loss_type='simple', importance_sampling=False):
     assert DIFF_STEPS == len(alpha_set) == len(beta_set)
     s = time.time()
     bce = tf.keras.losses.BinaryCrossentropy(from_logits=False)
@@ -294,7 +294,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS
         if pertubate:
             strokes = pertubate_delta_strokes(strokes)
             
-        glob_args = model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type, history
+        glob_args = model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type, history, importance_sampling
         model_out, att = train_step(strokes, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
         
         if optimizer.iterations%print_every==0:
@@ -430,6 +430,8 @@ def main():
     parser.add_argument('--rotate_strokes', help='rotate strokes by random angle', default=False, type=Boolean)
     parser.add_argument('--style_extractor', help='which style extractor to use (default mobilenet)', default='mobilenet', type=str)
     parser.add_argument('--loss_type', help='which loss function to use, possible: simple, vlb, hybrid (default simple)', default='simple', type=str)
+    parser.add_argument('--importance_sampling', help='whether or not to perform importance sampling', default=True, type=Boolean)
+
    
     args = parser.parse_args()
     DATASET = args.dataset
@@ -456,6 +458,7 @@ def main():
     ROTATE = args.rotate_strokes
     STYLE_EXTRACTOR = args.style_extractor
     LOSS_TYPE = args.loss_type
+    IMPORTANCE_SAMPLING = args.importance_sampling
 
     assert NOISE_SHEDULE in ['default', 'cosine']
     C1 = args.channels
@@ -516,7 +519,7 @@ def main():
         dataset, style_vectors, dataset_val = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE, NUM_VAL_SAMPLES)
 
     val_dataset = {'texts': texts, 'samples': unpadded, 'style_vectors': style_vectors}
-    train(dataset, NUM_STEPS, model, optimizer, alpha_set, beta_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, INTERPOLATE_ALPHAS, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset, dataset_val=dataset_val, pertubate=PERTUBATE, rotate=ROTATE, loss_type=LOSS_TYPE)
+    train(dataset, NUM_STEPS, model, optimizer, alpha_set, beta_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, INTERPOLATE_ALPHAS, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset, dataset_val=dataset_val, pertubate=PERTUBATE, rotate=ROTATE, loss_type=LOSS_TYPE, importance_sampling=IMPORTANCE_SAMPLING)
 
 if __name__ == '__main__':
     main()
