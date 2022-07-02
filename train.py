@@ -54,26 +54,33 @@ def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
             #c = tf.expand_dims(b, axis=2)          # [BS, 1, 1]
             #model_log_variance = tf.tile(c, (1, 488, 2))
 
+            beta_bar_set_clipped = tf.concat(values=([beta_bar_set[1]], beta_bar_set[1:]), axis=0)
+            beta_bars = tf.gather_nd(beta_bar_set_clipped, timesteps)
+            beta_bars = tf.reshape(beta_bars, [batch_size, 1, 1])
+
             beta_bars_log = tf.gather_nd(beta_bar_set_log_clipped, timesteps)
             beta_bars_log = tf.reshape(beta_bars_log, [batch_size, 1, 1])
-            #beta_bars = tf.reshape(beta_bars, [batch_size, 1, 1])
-
-            #min_log = tf.math.log(beta_bars)
-            #max_log = tf.math.log(betas)
-
-            score, pl_pred, att = model(x_perturbed, text, tf.sqrt(alpha_bars), style_vectors, training=True)
-            tf.print("score", score.shape)
-            #model_log_variance = sigma_logits * max_log + (1 - sigma_logits) * min_log
-            #sigma = tf.exp(model_log_variance)
-            vlb = nn.sigma_los_vb(x_perturbed, x, timesteps, alpha_set, alpha_bars_set, alpha_bar_set_prev, beta_set, beta_bars_log, score, model_log_variance, history, importance_sampling, train_summary_writer, step=optimizer.iterations)
             
+            betas = tf.gather_nd(beta_set, timesteps)
+            betas = tf.reshape(betas, [batch_size, 1, 1])
+
+            min_log = tf.math.log(beta_bars)
+            max_log = tf.math.log(betas)
+
+            score, pl_pred, sigma_logits, att = model(x_perturbed, text, tf.sqrt(alpha_bars), style_vectors, training=True)
+
+            if model.learn_sigma:
+                sigma_logits = (sigma_logits + 1) / 2
+                model_log_variance = sigma_logits * max_log + (1 - sigma_logits) * min_log
+
+            vlb = nn.sigma_los_vb(x_perturbed, x, timesteps, alpha_set, alpha_bars_set, alpha_bar_set_prev, beta_set, beta_bars_log, score, model_log_variance, history, importance_sampling, train_summary_writer, step=optimizer.iterations)
 
             pl_loss = tf.reduce_mean(bce(pen_lifts, pl_pred) * tf.squeeze(alpha_bars, -1))
             with train_summary_writer.as_default():
                 tf.summary.scalar('pl_loss', pl_loss, step=optimizer.iterations)
                 tf.summary.scalar('vlb', vlb, step=optimizer.iterations)
             loss = vlb + pl_loss
-        elif model.learn_sigma:
+        elif loss_type == "hybrid":
             # hybrid loss
             batch_size = len(x)
             betas = tf.gather_nd(beta_set, timesteps)
@@ -103,8 +110,8 @@ def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
                 tf.summary.scalar('loss_simple', loss_simple, step=optimizer.iterations)
             loss = loss_simple + pl_loss
             #loss = nn.loss_fn(eps, score, pen_lifts, pl_pred, alpha_bars, bce)
-        if model.learn_sigma:
-            loss += SIGMA_LOSS_COEF * nn.sigma_los_vb(x_perturbed, x, timesteps, alphas, betas, alpha_set, alpha_set_prev, beta_set, beta_bars, score, sigma, train_summary_writer, step=optimizer.iterations)
+        #if model.learn_sigma:
+        #    loss += SIGMA_LOSS_COEF * nn.sigma_los_vb(x_perturbed, x, timesteps, alphas, betas, alpha_set, alpha_set_prev, beta_set, beta_bars, score, sigma, train_summary_writer, step=optimizer.iterations)
         
     gradients = tape.gradient(loss, model.trainable_variables)  
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
