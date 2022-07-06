@@ -6,6 +6,7 @@ from tensorflow.keras.layers import (Dense, Conv1D, Embedding, UpSampling1D, Ave
 AveragePooling2D, GlobalAveragePooling2D, Activation, LayerNormalization, Dropout, Layer)
 
 import sys
+import pickle
 
 def create_padding_mask(seq, repeats=1):
     seq = tf.cast(tf.math.equal(seq, 0), tf.float32)
@@ -141,7 +142,7 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
     #tf.print("pred_log_var nan: ", tf.math.reduce_sum (tf.cast(tf.math.is_nan(true_variance_log), tf.int32)) > 0)
     #tf.print("pred_log_var inf: ", tf.math.reduce_sum (tf.cast(tf.math.is_inf(true_variance_log), tf.int32)) > 0)
 
-    """pred_x0_coef1_set = tf.sqrt(1.0 / alpha_bars_set)
+    pred_x0_coef1_set = tf.sqrt(1.0 / alpha_bars_set)
     pred_x0_coef2_set = tf.sqrt(1.0 / alpha_bars_set - 1)
     pred_x0_coef1 = tf.gather_nd(pred_x0_coef1_set, t)
     pred_x0_coef2 = tf.gather_nd(pred_x0_coef2_set, t)
@@ -149,9 +150,9 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
     pred_x0_coef1 = tf.reshape(pred_x0_coef1, [batch_size, 1, 1])
     pred_x0_coef2 = tf.reshape(pred_x0_coef2, [batch_size, 1, 1])
     pred_x0 = pred_x0_coef1 * x_t - pred_x0_coef2 * pred_mean
-    pred_mean_param = mean_coef1 * pred_x0 + mean_coef2 * x_t"""
+    pred_mean_param = mean_coef1 * pred_x0 + mean_coef2 * x_t
 
-    
+    '''
     pred_mean_coef1_set = 1 / (tf.sqrt(alpha_set))
     pred_mean_coef2_set = (beta_set / tf.sqrt(1 - alpha_bars_set))
     pred_mean_coef1 = tf.gather_nd(pred_mean_coef1_set, t)
@@ -159,16 +160,26 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
 
     pred_mean_coef1 = tf.reshape(pred_mean_coef1, [batch_size, 1, 1])
     pred_mean_coef2 = tf.reshape(pred_mean_coef2, [batch_size, 1, 1])
-    pred_mean_param = pred_mean_coef1 * (x_t - pred_mean_coef2 * pred_mean)
+    pred_mean_param2 = pred_mean_coef1 * (x_t - pred_mean_coef2 * pred_mean)'''
 
-    """for ts, ind in enumerate(t.numpy()):
+    '''
+    for ts, ind in enumerate(t.numpy()):
         if ind[0] == 59:
             print('true_mean: ', true_mean[ts][0:5])
+            print("pred_mean: ", pred_mean[ts][0:5])
+            print("x_t: ", x_t[ts][0:5])
+            print("pred_x0_coef1: ", pred_x0_coef1[ts][0:5])
+            print("pred_x0_coef2: ", pred_x0_coef2[ts][0:5])
+            print("pred_x0: ", pred_x0[ts][0:5])
             print('pred_mean_param: ', pred_mean_param[ts][0:5])
-            print('pred_mean_coef1: ', pred_mean_coef1[ts][0:5])
-            print('pred_mean_coef2: ', pred_mean_coef2[ts][0:5])"""
+            print('pred_mean_param2: ', pred_mean_param2[ts][0:5])
+            #print('pred_mean_coef1: ', pred_mean_coef1[ts][0:5])
+            #print('pred_mean_coef2: ', pred_mean_coef2[ts][0:5])'''
 
     kl = normal_kl_log_2(true_mean, true_variance_log, pred_mean_param, pred_log_var)
+    #m1 = tf.reduce_mean(pred_mean_param)
+    #m2 = tf.reduce_mean(true_mean)
+    #print('mean1 - mean2: ', m1 - m2)
 
     # for t = 0
     # negtive log likelihood of gaussian & first sample
@@ -227,6 +238,10 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
                 tf.summary.scalar('loss[0]', weights[0], step=step)
                 tf.summary.scalar('loss[1]', weights[1], step=step)
                 tf.summary.scalar('loss[59]', weights[59], step=step)
+            if step%1000 == 0:
+                fh = open("losses_{}.np".format(step.numpy()),"wb")
+                pickle.dump(weights ,fh)
+                fh.close()
 
             weights = np.sqrt(np.mean(history ** 2, axis=1))
             weights /= np.sum(weights)
@@ -573,8 +588,8 @@ class DiffusionWriter(Model):
         output = self.output_dense(x)
         pl = self.pen_lifts_dense(x)
         if self.learn_sigma:
-            sigma = self.output_sigma(x)
-            return output, pl, sigma, att
+            ret_sigma = self.output_sigma(x)
+            return output, pl, ret_sigma, att
         # static cov matrix
         else:
             return output, pl, att
