@@ -419,7 +419,7 @@ def main():
     parser.add_argument('--seqlen', help='sequence length during training, default 480', default=480, type=int)
     parser.add_argument('--textlen', help='text length during training, default 50', default=50, type=int)
     parser.add_argument('--width', help='offline image width, default 1400', default=1400, type=int)
-    parser.add_argument('--warmup', help='number of warmup steps, default 10k', default=10000, type=int)
+    parser.add_argument('--warmup', help='number of warmup steps, default 10k', default=15000, type=int)
     parser.add_argument('--dropout', help='dropout rate, default 0', default=0.0, type=float)
     parser.add_argument('--num_attlayers', help='number of attentional layers at lowest resolution', default=2, type=int)
     parser.add_argument('--channels', help='number of channels in first layer, default 128', default=128, type=int)
@@ -430,16 +430,25 @@ def main():
     parser.add_argument('--val_every', help='how often to perform validation', default=None, type=int)
     parser.add_argument('--num_heads', help='number of attention heads for encoder', default=8, type=int)
     parser.add_argument('--enc_att_layers', help='number of attention layers for encoder', default=1, type=int)
-    parser.add_argument('--noise_shedule', help='specifies which noise shedule to use (default or cosine)', default='default', type=str)
-    parser.add_argument('--learn_sigma', help='learn cov matrix', default=False, type=Boolean)
-    parser.add_argument('--interpolate_alphas', help='interpolate alphas in training step', default=True, type=Boolean)
-    parser.add_argument('--pertubate_strokes', help='pertubate strokes', default=False, type=Boolean)
-    parser.add_argument('--rotate_strokes', help='rotate strokes by random angle', default=False, type=Boolean)
+    parser.add_argument('--noise_shedule', help='specifies which noise shedule to use (default or cosine)', default='cosine', type=str)
+    parser.add_argument('--learn_sigma', help='learn cov matrix', action='store_true')
+    parser.add_argument('--no-learn_sigma', dest='learn_sigma', action='store_false')
+    parser.set_defaults(learn_sigma=False)
+    parser.add_argument('--interpolate_alphas', help='interpolate alphas in training step', action='store_true')
+    parser.add_argument('--no-interpolate_alphas', dest='interpolate_alphas', action='store_false')
+    parser.set_defaults(interpolate_alphas=False)
+    parser.add_argument('--pertubate_strokes', help='pertubate strokes', action='store_true')
+    parser.add_argument('--no-pertubate_strokes', dest='pertubate_strokes', action='store_false')
+    parser.set_defaults(pertubate_strokes=False)
+    parser.add_argument('--rotate_strokes', help='rotate strokes by random angle', action='store_true')
+    parser.add_argument('--no-rotate_strokes', dest='rotate_strokes', action='store_false')
+    parser.set_defaults(rotate_strokes=False)
     parser.add_argument('--style_extractor', help='which style extractor to use (default mobilenet)', default='mobilenet', type=str)
     parser.add_argument('--loss_type', help='which loss function to use, possible: simple, vlb, hybrid (default simple)', default='simple', type=str)
-    parser.add_argument('--importance_sampling', help='whether or not to perform importance sampling', default=True, type=Boolean)
-
-   
+    parser.add_argument('--importance_sampling', help='whether or not to perform importance sampling', action='store_true')
+    parser.add_argument('--no-importance_sampling', dest='importance_sampling', action='store_false')
+    parser.set_defaults(importance_sampling=False)
+    
     args = parser.parse_args()
     DATASET = args.dataset
     NUM_VAL_SAMPLES = args.num_valsamples
@@ -507,13 +516,19 @@ def main():
     lr = nn.InvSqrtSchedule(C3, warmup_steps=WARMUP_STEPS)
     # plot lr
     if False:
+        fig = plt.figure()
         a = []
         lrs = []
-        for i in range(0, 60000, 100):
-            print(i, lr(float(i)).numpy())
+        for i in range(0, 70000, 1):
+            #print(i, lr(float(i)).numpy())
             a.append(i)
             lrs.append(lr(float(i)).numpy())
-        plt.plot(a, lrs)
+        plt.plot(a, lrs, color='black')
+        ax = plt.gca()
+        ax.set_xlim([0, 70000])
+        ax.set_ylim([0, 0.00025])
+        plt.xlabel('Iteration', fontsize=12)
+        plt.ylabel('Lernrate', fontsize=12)
         plt.show()
     optimizer = tf.keras.optimizers.Adam(lr, beta_1=0.9, beta_2=0.98, clipnorm=100)
     
