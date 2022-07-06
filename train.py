@@ -67,12 +67,14 @@ def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
             min_log = tf.math.log(beta_bars)
             max_log = tf.math.log(betas)
 
-            score, pl_pred, sigma_logits, att = model(x_perturbed, text, tf.sqrt(alpha_bars), style_vectors, training=True)
-
+            
             if model.learn_sigma:
+                score, pl_pred, sigma_logits, att = model(x_perturbed, text, tf.sqrt(alpha_bars), style_vectors, training=True)
                 sigma_logits = (sigma_logits + 1) / 2
                 model_log_variance = sigma_logits * max_log + (1 - sigma_logits) * min_log
-
+            else:
+                score, pl_pred, att = model(x_perturbed, text, tf.sqrt(alpha_bars), style_vectors, training=True)
+                
             vlb = nn.sigma_los_vb(x_perturbed, x, timesteps, alpha_set, alpha_bars_set, alpha_bar_set_prev, beta_set, beta_bars_log, score, model_log_variance, history, importance_sampling, train_summary_writer, step=optimizer.iterations)
 
             pl_loss = tf.reduce_mean(bce(pen_lifts, pl_pred) * tf.squeeze(alpha_bars, -1))
