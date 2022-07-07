@@ -14,6 +14,7 @@ from tensorflow.keras.applications.inception_v3 import InceptionV3
 import skimage
 import skimage.transform
 from torchvision.transforms import ToTensor
+import json
 
 from validation import bttr_beam_search_prob
 from validation import bttr_beam_search_prob_mean, cut_off_white
@@ -452,6 +453,10 @@ def main():
     parser.set_defaults(importance_sampling=False)
     
     args = parser.parse_args()
+
+    with open('./weights/config.json', 'w') as f:
+        json.dump(vars(args), f)
+
     DATASET = args.dataset
     NUM_VAL_SAMPLES = args.num_valsamples
     TB_PREFIX = args.tb_prefix
