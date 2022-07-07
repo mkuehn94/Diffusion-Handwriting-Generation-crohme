@@ -78,12 +78,12 @@ def approx_standard_normal_cdf(x):
 def continous_gaussian_log_likelihood(x, means, log_scales):
     centered_x = x - means
     inv_stdv = tf.exp(-log_scales)
-    plus_in = inv_stdv * (centered_x + 0.00001)
+    plus_in = inv_stdv * (centered_x + 0.1)
     cdf_plus = approx_standard_normal_cdf(plus_in)
-    min_in = inv_stdv * (centered_x - 0.00001)
+    min_in = inv_stdv * (centered_x - 0.1)
     cdf_min = approx_standard_normal_cdf(min_in)
     cdf_delta = cdf_plus - cdf_min
-    return tf.math.log(tf.maximum(cdf_delta, 1e-12))
+    return tf.math.log(cdf_delta + 1e-12)
 
 
 def normal_kl_log_2(mean1, logvar1, mean2, logvar2):
@@ -318,13 +318,14 @@ class MultiHeadAttention(Layer):
         return output, attention_weights
 
 class InvSqrtSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
-    def __init__(self, d_model, warmup_steps=4000):
+    def __init__(self, d_model, warmup_steps=7000):
         super().__init__()
         self.d_model = tf.cast(d_model, tf.float32)
         self.warmup_steps = warmup_steps
     
     def __call__(self, step):
         arg1 = tf.math.rsqrt(step)
+        #arg1 = tf.math.rsqrt(step) / 3
         arg2 = step * (self.warmup_steps ** -1.5)
         return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
 
