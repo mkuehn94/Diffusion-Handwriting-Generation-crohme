@@ -242,6 +242,7 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
                 #tf.summary.scalar('kl_loss', kl_loss, step=step)
                 tf.summary.scalar('loss[0]', weights[0], step=step)
                 tf.summary.scalar('loss[1]', weights[1], step=step)
+                tf.summary.scalar('loss[29]', weights[29], step=step)
                 tf.summary.scalar('loss[59]', weights[59], step=step)
             if step%1000 == 0:
                 fh = open("losses_{}.np".format(step.numpy()),"wb")
