@@ -105,8 +105,7 @@ def normal_kl_log(mean1, logvar1, mean2, logvar2):
 
     return 0.5 * coef_4
                 
-
-def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, beta_set, beta_bars_log, pred_mean, pred_log_var, history, importance_sampling, train_summary_writer, step):
+def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, beta_set, beta_bars_log, pred_mean, pred_log_var, history, importance_sampling, train_summary_writer, step, l0_loss='kl'):
     # for t > 0
     # KL Divergence between true and predicted gaussians
     batch_size = len(x_t)
@@ -189,17 +188,23 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
     #c = tf.expand_dims(b, axis=2)          # [BS, 1, 1]
     #pred_log_var = tf.tile(c, (1, 488, 2)) # [BS, 488, 2]
 
-    nll = -continous_gaussian_log_likelihood(x_0, pred_mean_param, pred_log_var * 0.5)
     #dist = tfd.Normal(loc=pred_mean_param, scale=tf.math.sqrt(tf.math.exp(pred_log_var * 0.5)))
     #print('prob: ', dist.prob(x_0))
     #print('log_prob: ', tf.math.log(tf.math.maximum(dist.prob(x_0), 1e-12)))
     #nll = -tf.math.log(tf.math.maximum(dist.prob(x_0), 1e-12))
 
     # tensorboard logging
-    n_tn0 = tf.math.count_nonzero(t[:,0])
-    n_t0 = batch_size - n_tn0
+    #n_tn0 = tf.math.count_nonzero(t[:,0])
+    #n_t0 = batch_size - n_tn0
 
-    sigma_loss = tf.where(tf.expand_dims(t,axis=2)==0, nll, kl)
+    if l0_loss == 'nll':
+        nll = -continous_gaussian_log_likelihood(x_0, pred_mean_param, pred_log_var * 0.5)
+        sigma_loss = tf.where(tf.expand_dims(t,axis=2)==0, nll, kl)
+    elif l0_loss == 'kl':
+        sigma_loss = kl
+    elif l0_loss == 'mse':
+        mse = (true_mean - pred_mean)**2
+        sigma_loss = tf.where(tf.expand_dims(t,axis=2)==0, mse, kl)
 
     if importance_sampling:
         # keep track of individual loss terms
@@ -233,8 +238,8 @@ def sigma_los_vb(x_t, x_0, t, alpha_set, alpha_bars_set, alpha_bars_set_prev, be
             #print("loss[1]: ", weights[1])
             #print("loss[59]: ", weights[59])
             with train_summary_writer.as_default():
-                tf.summary.scalar('nll_loss', nll_loss, step=step)
-                tf.summary.scalar('kl_loss', kl_loss, step=step)
+                #tf.summary.scalar('nll_loss', nll_loss, step=step)
+                #tf.summary.scalar('kl_loss', kl_loss, step=step)
                 tf.summary.scalar('loss[0]', weights[0], step=step)
                 tf.summary.scalar('loss[1]', weights[1], step=step)
                 tf.summary.scalar('loss[59]', weights[59], step=step)
