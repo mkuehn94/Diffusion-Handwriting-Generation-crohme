@@ -1,9 +1,10 @@
-from xmlrpc.client import Boolean
+from contextlib import ExitStack
 import tensorflow as tf
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import utils
+import os
 import nn
 import time
 import random
@@ -26,7 +27,7 @@ from bttr.lit_bttr import LitBTTR
 SIGMA_LOSS_COEF = 0.001
 
 #@tf.function
-def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args):
+def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, is_val_step, glob_args):
     model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type, history, importance_sampling, l0_type = glob_args
     alpha_bars_set = tf.math.cumprod(alpha_set)
     if(interpolate_alphas):
@@ -37,9 +38,10 @@ def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
     x_perturbed = tf.sqrt(alpha_bars) * x 
     x_perturbed += tf.sqrt(1 - alpha_bars) * eps
 
-    with tf.GradientTape() as tape:
-        # calculate loss
-
+    # calculate loss
+    with ExitStack() as stack:
+        if is_val_step == False:
+            tape = stack.enter_context(tf.GradientTape())
         if loss_type == "vlb":
             batch_size = len(x)
             
@@ -79,9 +81,10 @@ def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
             vlb = nn.sigma_los_vb(x_perturbed, x, timesteps, alpha_set, alpha_bars_set, alpha_bar_set_prev, beta_set, beta_bars_log, score, model_log_variance, history, importance_sampling, train_summary_writer, step=optimizer.iterations, l0_loss=l0_type)
 
             pl_loss = tf.reduce_mean(bce(pen_lifts, pl_pred) * tf.squeeze(alpha_bars, -1))
-            with train_summary_writer.as_default():
-                tf.summary.scalar('pl_loss', pl_loss, step=optimizer.iterations)
-                tf.summary.scalar('vlb', vlb, step=optimizer.iterations)
+            if is_val_step == False:
+                with train_summary_writer.as_default():
+                    tf.summary.scalar('pl_loss', pl_loss, step=optimizer.iterations)
+                    tf.summary.scalar('vlb', vlb, step=optimizer.iterations)
             loss = vlb + pl_loss
         elif loss_type == "hybrid":
             # hybrid loss
@@ -108,18 +111,20 @@ def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
             score, pl_pred, att = model(x_perturbed, text, tf.sqrt(alpha_bars), style_vectors, training=True)
             loss_simple = tf.reduce_mean(tf.reduce_sum(tf.square(eps - score), axis=-1))
             pl_loss = tf.reduce_mean(bce(pen_lifts, pl_pred) * tf.squeeze(alpha_bars, -1))
-            with train_summary_writer.as_default():
-                tf.summary.scalar('pl_loss', pl_loss, step=optimizer.iterations)
-                tf.summary.scalar('loss_simple', loss_simple, step=optimizer.iterations)
+            if is_val_step == False:
+                with train_summary_writer.as_default():
+                    tf.summary.scalar('pl_loss', pl_loss, step=optimizer.iterations)
+                    tf.summary.scalar('loss_simple', loss_simple, step=optimizer.iterations)
             loss = loss_simple + pl_loss
             #loss = nn.loss_fn(eps, score, pen_lifts, pl_pred, alpha_bars, bce)
         #if model.learn_sigma:
         #    loss += SIGMA_LOSS_COEF * nn.sigma_los_vb(x_perturbed, x, timesteps, alphas, betas, alpha_set, alpha_set_prev, beta_set, beta_bars, score, sigma, train_summary_writer, step=optimizer.iterations)
-        
-    gradients = tape.gradient(loss, model.trainable_variables)  
-    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-    train_loss(loss)
-    return score, att
+    
+    if is_val_step == False:
+        gradients = tape.gradient(loss, model.trainable_variables)  
+        optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+        train_loss(loss)
+    return loss
 
 
 # scale an array of images to a new size
@@ -150,42 +155,6 @@ def calculate_fid(model, images1, images2):
 	fid = ssdiff + np.trace(sigma1 + sigma2 - 2.0 * covmean)
 	return fid
 
-@tf.function
-def validation_step(x, pen_lifts, text, style_vectors, interpolate_alphas, glob_args):
-    model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type, history = glob_args
-    if(interpolate_alphas):
-        alphas, timesteps = utils.get_alphas(len(x), alpha_set)
-    else:
-        alphas, timesteps = utils.get_alphas_new(len(x), alpha_set)
-    eps = tf.random.normal(tf.shape(x))
-    x_perturbed = tf.sqrt(alphas) * x 
-    x_perturbed += tf.sqrt(1 - alphas) * eps
-
-    #with tf.GradientTape() as tape:
-    if model.learn_sigma:
-        batch_size = len(x)
-        betas = tf.gather_nd(beta_set, timesteps)
-        betas = tf.reshape(betas, [batch_size, 1, 1])
-        alpha_set_prev = tf.concat(values=([1], alpha_set[:-1]), axis=0)
-        beta_bar_set = beta_set * (1.0 - alpha_set_prev) / (1.0 - alpha_set)
-        beta_bar_set_clipped = tf.concat(values=([beta_bar_set[1]], beta_bar_set[1:]), axis=0)
-
-        beta_bars = tf.gather_nd(beta_bar_set_clipped, timesteps)
-        beta_bars = tf.reshape(beta_bars, [batch_size, 1, 1])
-
-        min_log = tf.math.log(beta_bars)
-        max_log = tf.math.log(betas)
-        
-        score, pl_pred, sigma_logits, att = model(x_perturbed, text, tf.sqrt(alphas), style_vectors, training=True)
-        model_log_variance = sigma_logits * max_log + (1 - sigma_logits) * min_log
-        sigma = tf.exp(model_log_variance)
-    else:
-        score, pl_pred, att = model(x_perturbed, text, tf.sqrt(alphas), style_vectors, training=True)
-    loss = nn.loss_fn(eps, score, pen_lifts, pl_pred, alphas, bce)
-    if model.learn_sigma:
-        loss += SIGMA_LOSS_COEF * nn.sigma_los_vb(x_perturbed, x, timesteps, alphas, betas, alpha_set, alpha_set_prev, beta_set, beta_bars, score, sigma, train_summary_writer, step=optimizer.iterations)
-        
-    return loss
 
 def find_stroke_center(abs_stroke):
     min_x = abs_stroke[:, 0].min()
@@ -288,7 +257,7 @@ def pertubate_delta_strokes(delta_strokes):
 val_model = InceptionV3()
 ckpt = './BTTRcustom/checkpoints/pretrained-2014.ckpt'
 lit_model = LitBTTR.load_from_checkpoint(ckpt)
-def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS, print_every=1000, save_every=10000, interpolate_alphas=True, train_summary_writer = None, val_every = None, val_dataset = None, dataset_val = None, pertubate = False, rotate = False, loss_type='simple', importance_sampling=False, l0_type='nll'):
+def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS, print_every=1000, save_every=10000, interpolate_alphas=True, train_summary_writer = None, val_every = None, val_dataset = None, dataset_val = None, pertubate = False, rotate = False, loss_type='simple', importance_sampling=False, l0_type='nll', weights_dir='weights'):
     assert DIFF_STEPS == len(alpha_set) == len(beta_set)
     s = time.time()
     bce = tf.keras.losses.BinaryCrossentropy(from_logits=False)
@@ -305,28 +274,31 @@ def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS
             strokes = pertubate_delta_strokes(strokes)
             
         glob_args = model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type, history, importance_sampling, l0_type
-        model_out, att = train_step(strokes, pen_lifts, text, style_vectors, interpolate_alphas, glob_args)
+        loss = train_step(strokes, pen_lifts, text, style_vectors, interpolate_alphas, False, glob_args)
         
         if optimizer.iterations%print_every==0:
             print("Iteration %d, Loss %f, Time %ds" % (optimizer.iterations, train_loss.result(), time.time()-s))
             if dataset_val is not None:
+                val_loss = 0
+                n_valbatch = 0
                 for (val_strokes, val_text, val_style_vectors) in dataset_val:
+                    n_valbatch += 1
                     val_strokes, val_pen_lifts = val_strokes[:, :, :2], val_strokes[:, :, 2:]
-                    val_loss = validation_step(val_strokes, val_pen_lifts, val_text, val_style_vectors, interpolate_alphas, glob_args)
-                tf.print("val_loss:", val_loss, output_stream=sys.stdout)
+                    val_loss += train_step(val_strokes, val_pen_lifts, val_text, val_style_vectors, interpolate_alphas, True, glob_args).numpy()
+                tf.print("val_loss:", val_loss/n_valbatch, output_stream=sys.stdout)
             with train_summary_writer.as_default():
                 tf.summary.scalar('loss', train_loss.result(), step=optimizer.iterations)
                 if dataset_val is not None:
-                    tf.summary.scalar('val_loss', val_loss, step=optimizer.iterations)
+                    tf.summary.scalar('val_loss', val_loss/n_valbatch, step=optimizer.iterations)
 
             train_loss.reset_states()
 
         if (optimizer.iterations+1) % save_every==0:
-            save_path = './weights/model_step%d.h5' % (optimizer.iterations+1)
+            save_path = './{}/model_step{}.h5'.format(weights_dir, optimizer.iterations+1)
             model.save_weights(save_path)
             
         if optimizer.iterations > iterations:
-            model.save_weights('./weights/model.h5')
+            model.save_weights('./{}/model.h5'.format(weights_dir))
             break
 
         if val_every is not None and (optimizer.iterations) % val_every==0:
@@ -452,11 +424,10 @@ def main():
     parser.add_argument('--no-importance_sampling', dest='importance_sampling', action='store_false')
     parser.set_defaults(importance_sampling=False)
     parser.add_argument('--l0_loss', help='which loss function to use for l0, possible: nll, kl, mse (default nll)', default='nll', type=str)
+    parser.add_argument('--weight_dir', help='specifies the directory to store the weights in', default='weights', type=str)
+
     
     args = parser.parse_args()
-
-    with open('./weights/config.json', 'w') as f:
-        json.dump(vars(args), f)
 
     DATASET = args.dataset
     NUM_VAL_SAMPLES = args.num_valsamples
@@ -484,6 +455,41 @@ def main():
     LOSS_TYPE = args.loss_type
     IMPORTANCE_SAMPLING = args.importance_sampling
     L0_TYPE = args.l0_loss
+    WEIGHTS_DIR = args.weight_dir
+
+    DATASET = 'new.p'
+    NUM_VAL_SAMPLES = 0
+    TB_PREFIX = 'DELETE'
+    NUM_STEPS = 70000
+    BATCH_SIZE = 96
+    MAX_SEQ_LEN = 480
+    MAX_TEXT_LEN = 50
+    WIDTH = 1400
+    DROP_RATE = 0
+    NUM_ATTLAYERS = 2
+    WARMUP_STEPS = 15000
+    PRINT_EVERY = 10
+    SAVE_EVERY = 10
+    DIFF_STEPS = 500
+    VAL_EVERY = None
+    ENCODER_NUM_HEADS = 8
+    ENCODER_NUM_ATTLAYERS = 1
+    NOISE_SHEDULE = 'cosine'
+    LEARN_SIGMA = False
+    INTERPOLATE_ALPHAS = False
+    PERTUBATE = False
+    ROTATE = False
+    STYLE_EXTRACTOR = 'mobilenet'
+    LOSS_TYPE = 'simple'
+    IMPORTANCE_SAMPLING = True
+    L0_TYPE = 'mse'
+    WEIGHTS_DIR = 'DELETE_WEIGHTS'
+
+    if not os.path.isdir('./{}/'.format(WEIGHTS_DIR)):
+        os.mkdir('./{}/'.format(WEIGHTS_DIR))
+
+    with open('./{}/config.json'.format(WEIGHTS_DIR), 'w') as f:
+        json.dump(vars(args), f)
 
     assert NOISE_SHEDULE in ['default', 'cosine']
     C1 = args.channels
@@ -550,7 +556,7 @@ def main():
         dataset, style_vectors, dataset_val = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE, NUM_VAL_SAMPLES)
 
     val_dataset = {'texts': texts, 'samples': unpadded, 'style_vectors': style_vectors}
-    train(dataset, NUM_STEPS, model, optimizer, alpha_set, beta_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, INTERPOLATE_ALPHAS, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset, dataset_val=dataset_val, pertubate=PERTUBATE, rotate=ROTATE, loss_type=LOSS_TYPE, importance_sampling=IMPORTANCE_SAMPLING, l0_type=L0_TYPE)
+    train(dataset, NUM_STEPS, model, optimizer, alpha_set, beta_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, INTERPOLATE_ALPHAS, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset, dataset_val=dataset_val, pertubate=PERTUBATE, rotate=ROTATE, loss_type=LOSS_TYPE, importance_sampling=IMPORTANCE_SAMPLING, l0_type=L0_TYPE, weights_dir=WEIGHTS_DIR)
 
 if __name__ == '__main__':
     main()
