@@ -71,12 +71,12 @@ def main():
     parser.add_argument('--diffusion_steps', help='number of diffusion steps', default=60, type=int)
     parser.add_argument('--num_heads', help='number of attention heads for encoder', default=8, type=int)
     parser.add_argument('--enc_att_layers', help='number of attention layers for encoder', default=1, type=int)
-    parser.add_argument('--noise_shedule', help='specifies which noise shedule to use (default or cosine)', default='default', type=str)
+    parser.add_argument('--noise_shedule', help='specifies which noise shedule to use (default or cosine)', default='cosine', type=str)
     parser.add_argument('--val_nsamples', help='Number of images to generate in total', default=2048, type=int)
-    parser.add_argument('--output_path', help='directory of the output path to create', default='bttr_mask/T=60', type=str)
+    parser.add_argument('--output_path', help='directory of the output path to create', default='DELETE', type=str)
     parser.add_argument('--val_path', help='name of the validation dataset to use', default='./data/val_dataset.p', type=str)
     parser.add_argument('--weight_file', help='name of the weight file to use', default='model_step60000.h5', type=str)
-    parser.add_argument('--style_extractor', help='which style extractor to use (default mobilenet)', default='bttr', type=str)
+    parser.add_argument('--style_extractor', help='which style extractor to use (default mobilenet)', default='mobilenet', type=str)
     parser.add_argument('--from_bound', help='percentage upper bound of samples to generate', default=0.0, type=float)
     parser.add_argument('--to_bound', help='percentage lower bound of samples to generate', default=1.0, type=float)
 
@@ -128,14 +128,14 @@ def main():
         alpha_set = tf.math.cumprod(1-beta_set)
     elif NOISE_SHEDULE == 'cosine':
         beta_set = utils.get_cosine_beta_set(DIFF_STEPS)
-        alpha_set = utils.get_cosine_alpha_set(DIFF_STEPS)
+        alpha_set = 1 - beta_set#utils.get_cosine_alpha_set(DIFF_STEPS)
+        alpha_set_bar = tf.math.cumprod(alpha_set)
     else:
         print('Noise shedule not found')
         return
     tokenizer = utils.CrohmeTokenizer()
 
     strokes, texts, samples, unpadded = utils.preprocess_data(VAL_PATH, 26, 480, 1400, 96)
-    print(len(samples))
 
     style_vectors = []
     for sample in samples:
@@ -182,14 +182,14 @@ def main():
         print(j, batch)
 
         batch_texts = texts[batch]
-        batch_style = style_vecs[batch]
+        batch_style = [style_vecs[randint(0, len(style_vecs)-1)]]
 
         seq_length = np.max(np.count_nonzero(batch_texts, axis=1))
         timesteps = seq_length * 16
         timesteps = timesteps - (timesteps%8) + 8
 
         print(batch_texts)
-        strokes, imgs = utils.run_batch_inference(model, beta_set, alpha_set, batch_texts, batch_style, 
+        strokes, imgs = utils.run_batch_inference(model, beta_set, alpha_set_bar, batch_texts, batch_style, 
                                     tokenizer=tokenizer, time_steps=timesteps, diffusion_mode='new', 
                                     show_samples=False, path=None, show_every=None, return_both=True)
 
