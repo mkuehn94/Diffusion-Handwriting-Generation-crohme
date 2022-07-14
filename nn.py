@@ -531,7 +531,7 @@ class Text_Style_Encoder(Model):
         text_out = self.affine4(self.layernorm(self.text_ffn(text)), sigma)
         return text_out
 
-class DiffusionWriter(Model):
+class DiffusionWriter_old(Model):
     def __init__(self, num_layers=4, c1=128, c2=192, c3=256, drop_rate=0.1, num_heads=8, encoder_att_layers=1, learn_sigma=False):
         super().__init__()
         self.input_dense = Dense(c1)
@@ -600,3 +600,75 @@ class DiffusionWriter(Model):
         # static cov matrix
         else:
             return output, pl, att
+
+class DiffusionWriter(Model):
+    def __init__(self, num_layers=4, c1=64, c2=128, c3=256, c4=512, drop_rate=0.1, num_heads=8, encoder_att_layers=1, learn_sigma=False):
+        super().__init__()
+        self.input_dense = Dense(c1)
+        self.sigma_ffn = ff_network(c1//4, 2048)
+        self.enc1 = ConvSubLayer(c1, [1, 2])
+        self.enc2 = ConvSubLayer(c2, [1, 2])
+        self.enc3 = DecoderLayer(c2, 3, drop_rate, pos_factor=8)
+        self.enc4 = ConvSubLayer(c3, [1, 2])
+        self.enc5 = DecoderLayer(c3, 4, drop_rate, pos_factor=4)
+        self.enc6 = ConvSubLayer(c4, [1, 2])
+        self.enc7 = DecoderLayer(c4, 4, drop_rate, pos_factor=2)
+        self.pool = AveragePooling1D(2)
+        self.upsample = UpSampling1D(2)
+
+        self.skip_conv1 = Conv1D(c2, 3, padding='same')
+        self.skip_conv2 = Conv1D(c3, 3, padding='same')
+        self.skip_conv3 = Conv1D(c4, 3, padding='same')
+        self.skip_conv4 = Conv1D(c2*2, 3, padding='same')
+        self.text_style_encoder = Text_Style_Encoder(c2*2, c2*4, num_heads, encoder_att_layers)
+        self.att_dense = Dense(c2*2)
+        self.att_layers = [DecoderLayer(c2*2, 6, drop_rate) 
+                     for i in range(num_layers)]
+
+        self.dec4 = ConvSubLayer(c4, [1, 2])        
+        self.dec3 = ConvSubLayer(c3, [1, 1])
+        self.dec2 = ConvSubLayer(c2, [1, 1])
+        self.dec1 = ConvSubLayer(c1, [1, 1])
+        self.output_dense = Dense(2)
+        self.pen_lifts_dense = Dense(1, activation='sigmoid')
+ 
+    def call(self, strokes, text, sigma, style_vector):
+        sigma = self.sigma_ffn(sigma)
+        text_mask = create_padding_mask(text)
+        text = self.text_style_encoder(text, style_vector, sigma)
+
+        x = self.input_dense(strokes)
+        h1 = self.enc1(x, sigma)
+        h2 = self.pool(h1)
+
+        h2 = self.enc2(h2, sigma)
+        h2, _ = self.enc3(h2, text, sigma, text_mask)
+        h3 = self.pool(h2)
+
+        h3 = self.enc4(h3, sigma)
+        h3, _ = self.enc5(h3, text, sigma, text_mask)
+        h4 = self.pool(h3)
+
+        h4 = self.enc6(h4, sigma)
+        h4, _ = self.enc7(h4, text, sigma, text_mask)
+        x = self.pool(h4)
+        
+        x = self.att_dense(x)
+        for att_layer in self.att_layers:
+            x, att = att_layer(x, text, sigma, text_mask)
+
+        x = self.upsample(x) + self.skip_conv4(h4)
+        x = self.dec4(x, sigma)
+
+        x = self.upsample(x) + self.skip_conv3(h3)
+        x = self.dec3(x, sigma)
+
+        x = self.upsample(x) + self.skip_conv2(h2)
+        x = self.dec2(x, sigma)
+
+        x = self.upsample(x) + self.skip_conv1(h1)
+        x = self.dec1(x, sigma)
+        
+        output = self.output_dense(x)
+        pl = self.pen_lifts_dense(x)
+        return output, pl, att
