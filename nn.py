@@ -608,11 +608,11 @@ class DiffusionWriter(Model):
         self.sigma_ffn = ff_network(c1//4, 2048)
         self.enc1 = ConvSubLayer(c1, [1, 2])
         self.enc2 = ConvSubLayer(c2, [1, 2])
-        self.enc3 = DecoderLayer(c2, 3, drop_rate, pos_factor=8)
+        self.enc3 = DecoderLayer(c2, 2, drop_rate, pos_factor=8)
         self.enc4 = ConvSubLayer(c3, [1, 2])
         self.enc5 = DecoderLayer(c3, 4, drop_rate, pos_factor=4)
         self.enc6 = ConvSubLayer(c4, [1, 2])
-        self.enc7 = DecoderLayer(c4, 4, drop_rate, pos_factor=2)
+        self.enc7 = DecoderLayer(c4, 8, drop_rate, pos_factor=2)
         self.pool = AveragePooling1D(2)
         self.upsample = UpSampling1D(2)
 
@@ -622,7 +622,7 @@ class DiffusionWriter(Model):
         self.skip_conv4 = Conv1D(c2*2, 3, padding='same')
         self.text_style_encoder = Text_Style_Encoder(c2*2, c2*4, num_heads, encoder_att_layers)
         self.att_dense = Dense(c2*2)
-        self.att_layers = [DecoderLayer(c2*2, 6, drop_rate) 
+        self.att_layers = [DecoderLayer(c2*2, 8, drop_rate) 
                      for i in range(num_layers)]
 
         self.dec4 = ConvSubLayer(c4, [1, 2])        
