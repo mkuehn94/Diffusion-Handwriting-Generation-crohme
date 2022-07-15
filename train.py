@@ -457,6 +457,34 @@ def main():
     L0_TYPE = args.l0_loss
     WEIGHTS_DIR = args.weight_dir
 
+    DATASET = 'new.p'
+    NUM_VAL_SAMPLES = 0
+    TB_PREFIX = 'DELETE'
+    NUM_STEPS = 70000
+    BATCH_SIZE = 96
+    MAX_SEQ_LEN = 472
+    MAX_TEXT_LEN = 50
+    WIDTH = 1400
+    DROP_RATE = 0
+    NUM_ATTLAYERS = 2
+    WARMUP_STEPS = 15000
+    PRINT_EVERY = 10
+    SAVE_EVERY = 10
+    DIFF_STEPS = 500
+    VAL_EVERY = None
+    ENCODER_NUM_HEADS = 8
+    ENCODER_NUM_ATTLAYERS = 1
+    NOISE_SHEDULE = 'cosine'
+    LEARN_SIGMA = False
+    INTERPOLATE_ALPHAS = False
+    PERTUBATE = False
+    ROTATE = False
+    STYLE_EXTRACTOR = 'mobilenet'
+    LOSS_TYPE = 'simple'
+    IMPORTANCE_SAMPLING = True
+    L0_TYPE = 'mse'
+    WEIGHTS_DIR = 'DELETE_WEIGHTS'
+
     if not os.path.isdir('./{}/'.format(WEIGHTS_DIR)):
         os.mkdir('./{}/'.format(WEIGHTS_DIR))
 
@@ -499,7 +527,7 @@ def main():
     else:
         raise ValueError('Style extractor not supported')
 
-    model = nn.DiffusionWriter(num_layers=NUM_ATTLAYERS, c1=C1, c2=C2, c3=C3,, drop_rate=DROP_RATE, num_heads=ENCODER_NUM_HEADS, encoder_att_layers=ENCODER_NUM_ATTLAYERS, learn_sigma=LEARN_SIGMA)
+    model = nn.DiffusionWriter(num_layers=NUM_ATTLAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE, num_heads=ENCODER_NUM_HEADS, encoder_att_layers=ENCODER_NUM_ATTLAYERS, learn_sigma=LEARN_SIGMA)
     lr = nn.InvSqrtSchedule(C3, warmup_steps=WARMUP_STEPS)
     # plot lr
     if False:
