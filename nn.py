@@ -531,7 +531,7 @@ class Text_Style_Encoder(Model):
         text_out = self.affine4(self.layernorm(self.text_ffn(text)), sigma)
         return text_out
 
-class DiffusionWriter_old(Model):
+class DiffusionWriter(Model):
     def __init__(self, num_layers=4, c1=128, c2=192, c3=256, drop_rate=0.1, num_heads=8, encoder_att_layers=1, learn_sigma=False):
         super().__init__()
         self.input_dense = Dense(c1)
@@ -601,7 +601,7 @@ class DiffusionWriter_old(Model):
         else:
             return output, pl, att
 
-class DiffusionWriter(Model):
+class DiffusionWriter_new(Model):
     def __init__(self, num_layers=4, c1=64, c2=128, c3=256, c4=512, drop_rate=0.1, num_heads=8, encoder_att_layers=1, learn_sigma=False):
         super().__init__()
         self.input_dense = Dense(c1)
