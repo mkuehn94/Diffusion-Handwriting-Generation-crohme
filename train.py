@@ -28,12 +28,18 @@ SIGMA_LOSS_COEF = 0.001
 
 #@tf.function
 def train_step(x, pen_lifts, text, style_vectors, interpolate_alphas, is_val_step, glob_args):
-    model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type, history, importance_sampling, l0_type = glob_args
+    model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type, history, importance_sampling, l0_type, ignore_last_loss = glob_args
     alpha_bars_set = tf.math.cumprod(alpha_set)
     if(interpolate_alphas):
-        alpha_bars, timesteps = utils.get_alphas(len(x), alpha_bars_set)
+        if ignore_last_loss:
+            alpha_bars, timesteps = utils.get_alphas(len(x), alpha_bars_set[:-1])
+        else:
+            alpha_bars, timesteps = utils.get_alphas(len(x), alpha_bars_set)
     else:
-        alpha_bars, timesteps = utils.get_alphas_new(len(x), alpha_bars_set)
+        if ignore_last_loss:
+            alpha_bars, timesteps = utils.get_alphas_new(len(x), alpha_bars_set[:-1])
+        else:
+            alpha_bars, timesteps = utils.get_alphas_new(len(x), alpha_bars_set)
     eps = tf.random.normal(tf.shape(x))
     x_perturbed = tf.sqrt(alpha_bars) * x 
     x_perturbed += tf.sqrt(1 - alpha_bars) * eps
@@ -257,7 +263,7 @@ def pertubate_delta_strokes(delta_strokes):
 val_model = InceptionV3()
 ckpt = './BTTRcustom/checkpoints/pretrained-2014.ckpt'
 lit_model = LitBTTR.load_from_checkpoint(ckpt)
-def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS, print_every=1000, save_every=10000, interpolate_alphas=True, train_summary_writer = None, val_every = None, val_dataset = None, dataset_val = None, pertubate = False, rotate = False, loss_type='simple', importance_sampling=False, l0_type='nll', weights_dir='weights'):
+def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS, print_every=1000, save_every=10000, interpolate_alphas=True, train_summary_writer = None, val_every = None, val_dataset = None, dataset_val = None, pertubate = False, rotate = False, loss_type='simple', importance_sampling=False, l0_type='nll', weights_dir='weights', ignore_last_loss=False):
     assert DIFF_STEPS == len(alpha_set) == len(beta_set)
     s = time.time()
     bce = tf.keras.losses.BinaryCrossentropy(from_logits=False)
@@ -273,7 +279,7 @@ def train(dataset, iterations, model, optimizer, alpha_set, beta_set, DIFF_STEPS
         if pertubate:
             strokes = pertubate_delta_strokes(strokes)
             
-        glob_args = model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type, history, importance_sampling, l0_type
+        glob_args = model, alpha_set, beta_set, bce, train_loss, optimizer, train_summary_writer, loss_type, history, importance_sampling, l0_type, ignore_last_loss
         loss = train_step(strokes, pen_lifts, text, style_vectors, interpolate_alphas, False, glob_args)
         
         if optimizer.iterations%print_every==0:
@@ -425,6 +431,9 @@ def main():
     parser.set_defaults(importance_sampling=False)
     parser.add_argument('--l0_loss', help='which loss function to use for l0, possible: nll, kl, mse (default nll)', default='nll', type=str)
     parser.add_argument('--weight_dir', help='specifies the directory to store the weights in', default='weights', type=str)
+    parser.add_argument('--ignore_last_loss', help='whether or not to ignore last lossterm', action='store_true')
+    parser.add_argument('--no-ignore_last_loss', dest='ignore_last_loss', action='store_false')
+    parser.set_defaults(ignore_last_loss=False)
 
     
     args = parser.parse_args()
@@ -456,34 +465,7 @@ def main():
     IMPORTANCE_SAMPLING = args.importance_sampling
     L0_TYPE = args.l0_loss
     WEIGHTS_DIR = args.weight_dir
-
-    DATASET = 'new.p'
-    NUM_VAL_SAMPLES = 0
-    TB_PREFIX = 'DELETE'
-    NUM_STEPS = 70000
-    BATCH_SIZE = 96
-    MAX_SEQ_LEN = 472
-    MAX_TEXT_LEN = 50
-    WIDTH = 1400
-    DROP_RATE = 0
-    NUM_ATTLAYERS = 2
-    WARMUP_STEPS = 15000
-    PRINT_EVERY = 10
-    SAVE_EVERY = 10
-    DIFF_STEPS = 500
-    VAL_EVERY = None
-    ENCODER_NUM_HEADS = 8
-    ENCODER_NUM_ATTLAYERS = 1
-    NOISE_SHEDULE = 'cosine'
-    LEARN_SIGMA = False
-    INTERPOLATE_ALPHAS = False
-    PERTUBATE = False
-    ROTATE = False
-    STYLE_EXTRACTOR = 'mobilenet'
-    LOSS_TYPE = 'simple'
-    IMPORTANCE_SAMPLING = True
-    L0_TYPE = 'mse'
-    WEIGHTS_DIR = 'DELETE_WEIGHTS'
+    IGNORE_LAST_LOSS = args.ignore_last_loss
 
     if not os.path.isdir('./{}/'.format(WEIGHTS_DIR)):
         os.mkdir('./{}/'.format(WEIGHTS_DIR))
@@ -556,7 +538,7 @@ def main():
         dataset, style_vectors, dataset_val = utils.create_dataset(strokes, texts, samples, style_extractor, BATCH_SIZE, BUFFER_SIZE, NUM_VAL_SAMPLES)
 
     val_dataset = {'texts': texts, 'samples': unpadded, 'style_vectors': style_vectors}
-    train(dataset, NUM_STEPS, model, optimizer, alpha_set, beta_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, INTERPOLATE_ALPHAS, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset, dataset_val=dataset_val, pertubate=PERTUBATE, rotate=ROTATE, loss_type=LOSS_TYPE, importance_sampling=IMPORTANCE_SAMPLING, l0_type=L0_TYPE, weights_dir=WEIGHTS_DIR)
+    train(dataset, NUM_STEPS, model, optimizer, alpha_set, beta_set, DIFF_STEPS, PRINT_EVERY, SAVE_EVERY, INTERPOLATE_ALPHAS, train_summary_writer, val_every=VAL_EVERY, val_dataset=val_dataset, dataset_val=dataset_val, pertubate=PERTUBATE, rotate=ROTATE, loss_type=LOSS_TYPE, importance_sampling=IMPORTANCE_SAMPLING, l0_type=L0_TYPE, weights_dir=WEIGHTS_DIR, ignore_last_loss=IGNORE_LAST_LOSS)
 
 if __name__ == '__main__':
     main()
