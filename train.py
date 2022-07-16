@@ -403,7 +403,7 @@ def main():
     parser.add_argument('--warmup', help='number of warmup steps, default 10k', default=15000, type=int)
     parser.add_argument('--dropout', help='dropout rate, default 0', default=0.0, type=float)
     parser.add_argument('--num_attlayers', help='number of attentional layers at lowest resolution', default=2, type=int)
-    parser.add_argument('--channels', help='number of channels in first layer, default 128', default=64, type=int)
+    parser.add_argument('--channels', help='number of channels in first layer, default 128', default=128, type=int)
     parser.add_argument('--print_every', help='show train loss every n iters', default=250, type=int)
     parser.add_argument('--save_every', help='save ckpt every n iters', default=2500, type=int)
     parser.add_argument('--diffusion_steps', help='number of diffusion steps', default=60, type=int)
