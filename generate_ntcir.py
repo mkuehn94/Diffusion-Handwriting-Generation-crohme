@@ -129,21 +129,11 @@ def main():
         return
     tokenizer = utils.CrohmeTokenizer()
 
-    strokes, texts, samples, unpadded = utils.preprocess_data(VAL_PATH, 26, 480, 1400, 96)
+    #strokes, texts, samples, unpadded = utils.preprocess_data(VAL_PATH, 26, 480, 1400, 96)
     with open('./normed_ntcir.pkl', 'rb') as handle:
         normed_ntcir = pickle.load(handle)
 
     print( 'loaded {} samples'.format(len(normed_ntcir)))
-
-    style_vectors = []
-    for sample in samples:
-        sample = tf.expand_dims(sample, axis=0)
-        
-        style_vec = style_extractor(sample)
-        style_vec = style_vec.numpy()
-        style_vectors.append(style_vec)
-    
-    style_vecs = np.concatenate(style_vectors, axis=0)
     
     model = nn.DiffusionWriter(num_layers=NUM_ATTLAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE, num_heads=ENCODER_NUM_HEADS, encoder_att_layers=ENCODER_NUM_ATTLAYERS)
 
