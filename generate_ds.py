@@ -73,9 +73,10 @@ def main():
     parser.add_argument('--enc_att_layers', help='number of attention layers for encoder', default=1, type=int)
     parser.add_argument('--noise_shedule', help='specifies which noise shedule to use (default or cosine)', default='cosine', type=str)
     parser.add_argument('--val_nsamples', help='Number of images to generate in total', default=2048, type=int)
-    parser.add_argument('--output_path', help='directory of the output path to create', default='DELETE', type=str)
+    parser.add_argument('--output_path', help='directory of the output path to create', default='default', type=str)
     parser.add_argument('--val_path', help='name of the validation dataset to use', default='./data/val_dataset.p', type=str)
-    parser.add_argument('--weight_file', help='name of the weight file to use', default='model_step60000.h5', type=str)
+    parser.add_argument('--weight_file', help='name of the weight file to use', default='model_step70000.h5', type=str)
+    parser.add_argument('--weight_dir', help='directory of the weights', default='weights', type=str)
     parser.add_argument('--style_extractor', help='which style extractor to use (default mobilenet)', default='mobilenet', type=str)
     parser.add_argument('--from_bound', help='percentage upper bound of samples to generate', default=0.0, type=float)
     parser.add_argument('--to_bound', help='percentage lower bound of samples to generate', default=1.0, type=float)
@@ -96,20 +97,21 @@ def main():
     STYLE_EXTRACTOR = args.style_extractor
     BOUND_FROM = args.from_bound
     BOUND_TO = args.to_bound
+    WEIGHT_DIR = args.weight_dir
     
     WEIGHT_FILE = args.weight_file
-    WEIGHT_FILE = "./weights/" + WEIGHT_FILE
+    WEIGHT_FILE = "./{}/".format(WEIGHT_DIR) + WEIGHT_FILE
 
     if OUTPUT_PATH is None:
         print('Please specify an output path')
         return
-    OUTPUT_PATH = "./output/" + OUTPUT_PATH
+    OUTPUT_PATH = "./output/{}_{}".format(OUTPUT_PATH, WEIGHT_DIR)
     if not os.path.isdir(OUTPUT_PATH):
         os.mkdir(OUTPUT_PATH)
 
     VAL_NSAMPLES -= (VAL_NSAMPLES % BATCH_SIZE)
 
-    C1 = args.channels
+    C1 = CHANNELS
     C2 = C1 * 3//2
     C3 = C1 * 2
 
