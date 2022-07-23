@@ -4,6 +4,7 @@ import sys
 import os
 import math
 import argparse
+import pickle
 
 import tensorflow as tf
 import numpy as np
@@ -170,6 +171,11 @@ def main():
     print((offset_to - offset) / BATCH_SIZE)
     batches = np.array_split(indices, math.ceil((offset_to - offset) / BATCH_SIZE))
     j = offset
+
+    with open('./mean_style.pkl', 'rb') as f:
+        batch_style = pickle.load(f)
+    batch_style = [batch_style]
+
     for batch in batches:
         _stroke = tf.random.normal([32, 400, 2])
         _text = tf.random.uniform([32, 40], dtype=tf.int32, maxval=50)
@@ -184,7 +190,7 @@ def main():
         print(j, batch)
 
         batch_texts = texts[batch]
-        batch_style = [style_vecs[randint(0, len(style_vecs)-1)]]
+        #batch_style = [style_vecs[randint(0, len(style_vecs)-1)]]
 
         seq_length = np.max(np.count_nonzero(batch_texts, axis=1))
         timesteps = seq_length * 16
