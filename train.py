@@ -16,6 +16,7 @@ import skimage
 import skimage.transform
 from torchvision.transforms import ToTensor
 import json
+import pickle
 
 from validation import bttr_beam_search_prob
 from validation import bttr_beam_search_prob_mean, cut_off_white
@@ -434,6 +435,7 @@ def main():
     parser.add_argument('--ignore_last_loss', help='whether or not to ignore last lossterm', action='store_true')
     parser.add_argument('--no-ignore_last_loss', dest='ignore_last_loss', action='store_false')
     parser.set_defaults(ignore_last_loss=False)
+    parser.add_argument('--weight_decay', help='weight decay rate, default 0', default=0.0, type=float)
 
     
     args = parser.parse_args()
@@ -466,6 +468,7 @@ def main():
     L0_TYPE = args.l0_loss
     WEIGHTS_DIR = args.weight_dir
     IGNORE_LAST_LOSS = args.ignore_last_loss
+    WEIGHT_DECAY = args.weight_decay
 
     if not os.path.isdir('./{}/'.format(WEIGHTS_DIR)):
         os.mkdir('./{}/'.format(WEIGHTS_DIR))
@@ -527,7 +530,11 @@ def main():
         plt.xlabel('Iteration', fontsize=12)
         plt.ylabel('Lernrate', fontsize=12)
         plt.show()
-    optimizer = tf.keras.optimizers.Adam(lr, beta_1=0.9, beta_2=0.98, clipnorm=100)
+    if WEIGHT_DECAY > 0:
+        import tensorflow_addons as tfa
+        optimizer = tfa.optimizers.AdamW(learning_rate=lr, beta_1=0.9, beta_2=0.98, clipnorm=100, weight_decay=WEIGHT_DECAY)
+    else:
+        optimizer = tf.keras.optimizers.Adam(lr, beta_1=0.9, beta_2=0.98, clipnorm=100)
     
     path = './data/{}'.format(DATASET)
     strokes, texts, samples, unpadded = utils.preprocess_data(path, MAX_TEXT_LEN, MAX_SEQ_LEN, WIDTH, 96, train_summary_writer)
