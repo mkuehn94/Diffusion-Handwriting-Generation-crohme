@@ -60,6 +60,7 @@ def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, retur
     fig.add_axes(ax)
     #if return_image:
 
+    #print('pen lifts: ', strokes[:, 2] > 0.5)
     for ind, value in enumerate(strokes[:, 2]):
         if value > 0.5:
             if stroke_weights:
@@ -158,7 +159,7 @@ def run_batch_inference(model, beta_set, alpha_set, text, style, tokenizer=None,
         
         if show_every is not None:
             if i in show_every:
-                plt.imshow(att[0][0])
+                plt.imshow(att[0][0], cmap='gray')
                 plt.show()
                 x_new = tf.concat([x, pen_lifts], axis=-1)
                 for i in range(bs):
@@ -230,7 +231,7 @@ def preprocess_data(path, max_text_len, max_seq_len, img_width, img_height, trai
     
 def create_dataset(strokes, texts, samples, style_extractor, batch_size, buffer_size, num_val=0):    
     #we DO NOT SHUFFLE here, because we will shuffle later
-    samples = tf.data.Dataset.from_tensor_slices(samples).batch(1)
+    samples = tf.data.Dataset.from_tensor_slices(samples).batch(batch_size)
 
     for count, s in enumerate(samples):
         style_vec = style_extractor(s)
@@ -330,17 +331,31 @@ def bttr_mapping(mode='diff_to_bttr'):
     mapping2 = CrohmeTokenizer().vocab
     bttr_keys = mapping.keys()
     diff_keys = mapping2.keys()
-    
+
     if mode == 'bttr_to_diff':
         bttr_to_diff = {}
         for bttr_key in bttr_keys:
             if bttr_key in diff_keys:
-                #print('{} => {}'.format(mapping[bttr_key], mapping2[bttr_key]))
                 bttr_to_diff[mapping[bttr_key]] = mapping2[bttr_key]
+
+        bttr_to_diff[0] = 0 # padding
+        bttr_to_diff[2] = 1 # end of sentence
+        bttr_to_diff[48] = 67 # cdots -> dots
+        bttr_to_diff[60] = 67 # cdots -> dots
+        bttr_to_diff[43] = 72 # [ -> lbrack
+        bttr_to_diff[81] = 73 # ] -> rbrack
+
         return bttr_to_diff
     elif mode == 'diff_to_bttr':
         diff_to_bttr = {}
         for diff_key in diff_keys:
             if diff_key in bttr_keys:
                 diff_to_bttr[mapping2[diff_key]] = mapping[diff_key]
+
+        diff_to_bttr[0] = 0 # padding
+        diff_to_bttr[1] = 2 # end of sentence
+        diff_to_bttr[67] = 48 # dots -> cdots
+        diff_to_bttr[72] = 43 # lbrack -> [
+        diff_to_bttr[73] = 81 # lbrack -> ]
+
         return diff_to_bttr
