@@ -512,7 +512,7 @@ def main():
     else:
         raise ValueError('Style extractor not supported')
 
-    model = nn.DiffusionWriter(num_layers=NUM_ATTLAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE, num_heads=ENCODER_NUM_HEADS, encoder_att_layers=ENCODER_NUM_ATTLAYERS, learn_sigma=LEARN_SIGMA)
+    model = nn.DiffusionWriter(num_layers=NUM_ATTLAYERS, c1=C1, c2=C2, c3=C3, drop_rate=DROP_RATE, num_heads=ENCODER_NUM_HEADS, encoder_att_layers=ENCODER_NUM_ATTLAYERS, learn_sigma=LEARN_SIGMA, l2_reg=WEIGHT_DECAY)
     lr = nn.InvSqrtSchedule(C3, warmup_steps=WARMUP_STEPS)
     # plot lr
     if False:
@@ -530,11 +530,7 @@ def main():
         plt.xlabel('Iteration', fontsize=12)
         plt.ylabel('Lernrate', fontsize=12)
         plt.show()
-    if WEIGHT_DECAY > 0:
-        import tensorflow_addons as tfa
-        optimizer = tfa.optimizers.AdamW(learning_rate=lr, beta_1=0.9, beta_2=0.98, clipnorm=100, weight_decay=WEIGHT_DECAY)
-    else:
-        optimizer = tf.keras.optimizers.Adam(lr, beta_1=0.9, beta_2=0.98, clipnorm=100)
+    optimizer = tf.keras.optimizers.Adam(lr, beta_1=0.9, beta_2=0.98, clipnorm=100)
     
     path = './data/{}'.format(DATASET)
     strokes, texts, samples, unpadded = utils.preprocess_data(path, MAX_TEXT_LEN, MAX_SEQ_LEN, WIDTH, 96, train_summary_writer)

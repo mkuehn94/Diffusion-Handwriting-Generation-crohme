@@ -4,6 +4,7 @@ from tensorflow.keras import Model, Sequential
 from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras.layers import (Dense, Conv1D, Embedding, UpSampling1D, AveragePooling1D, 
 AveragePooling2D, GlobalAveragePooling2D, Activation, LayerNormalization, Dropout, Layer)
+from tensorflow.keras.regularizers import l2
 
 import sys
 import pickle
@@ -27,10 +28,10 @@ def positional_encoding(position, C, pos_factor=1):
     pos_encoding = angle_rads[np.newaxis, ...]    
     return tf.cast(pos_encoding, dtype=tf.float32)
     
-def ff_network(C, dff=768, act_before=True):
+def ff_network(C, dff=768, act_before=True, l2_reg=0.0):
     ff_layers = [
-        Dense(dff, activation='swish'),
-        Dense(C)    
+        Dense(dff, activation='swish', kernel_regularizer=l2(l2_reg)),
+        Dense(C, kernel_regularizer=l2(l2_reg))  
     ]
     if act_before: ff_layers.insert(0, Activation('swish'))
     return Sequential(ff_layers)   
@@ -286,10 +287,10 @@ def reshape_down(x, factor=2):
     return x
     
 class AffineTransformLayer(Layer):
-    def __init__(self, filters):
+    def __init__(self, filters, l2_reg=0.0):
         super().__init__()
-        self.gamma_emb = Dense(filters, bias_initializer='ones')
-        self.beta_emb = Dense(filters)
+        self.gamma_emb = Dense(filters, bias_initializer='ones', kernel_regularizer=l2(l2_reg))
+        self.beta_emb = Dense(filters, kernel_regularizer=l2(l2_reg))
     
     def call(self, x, sigma):
         gammas = self.gamma_emb(sigma)
@@ -297,14 +298,14 @@ class AffineTransformLayer(Layer):
         return x * gammas + betas
 
 class MultiHeadAttention(Layer):
-    def __init__(self, C, num_heads):
+    def __init__(self, C, num_heads, l2_reg=0.0):
         super().__init__()
         self.C = C
         self.num_heads = num_heads
-        self.wq = Dense(C)
-        self.wk = Dense(C)
-        self.wv = Dense(C)
-        self.dense = Dense(C)  
+        self.wq = Dense(C, kernel_regularizer=l2(l2_reg))
+        self.wk = Dense(C, kernel_regularizer=l2(l2_reg))
+        self.wv = Dense(C, kernel_regularizer=l2(l2_reg))
+        self.dense = Dense(C, kernel_regularizer=l2(l2_reg))
         
     def split_heads(self, x, batch_size):
         x = tf.reshape(x, (batch_size, -1, self.num_heads, self.C // self.num_heads))
@@ -336,10 +337,10 @@ class InvSqrtSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
         return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
 
 class AffineTransformLayer(Layer):
-    def __init__(self, filters):
+    def __init__(self, filters, l2_reg=0.0):
         super().__init__()
-        self.gamma_dense = Dense(filters, bias_initializer='ones')
-        self.beta_dense = Dense(filters)
+        self.gamma_dense = Dense(filters, bias_initializer='ones', kernel_regularizer=l2(l2_reg))
+        self.beta_dense = Dense(filters, kernel_regularizer=l2(l2_reg))
     
     def call(self, x, sigma):
         gammas = self.gamma_dense(sigma)
@@ -347,16 +348,16 @@ class AffineTransformLayer(Layer):
         return x * gammas + betas
 
 class ConvSubLayer(Model):
-    def __init__(self, filters, dils=[1,1], activation='swish', drop_rate=0.0):
+    def __init__(self, filters, dils=[1,1], activation='swish', drop_rate=0.0, l2_reg=0.0):
         super().__init__()
         self.act = Activation(activation)
-        self.affine1 = AffineTransformLayer(filters//2)
-        self.affine2 = AffineTransformLayer(filters)
-        self.affine3 = AffineTransformLayer(filters)
-        self.conv_skip = Conv1D(filters, 3, padding='same')
-        self.conv1 = Conv1D(filters//2, 3, dilation_rate=dils[0], padding='same')
-        self.conv2 = Conv1D(filters, 3, dilation_rate=dils[0], padding='same')
-        self.fc = Dense(filters)
+        self.affine1 = AffineTransformLayer(filters//2, l2_reg=l2_reg)
+        self.affine2 = AffineTransformLayer(filters, l2_reg=l2_reg)
+        self.affine3 = AffineTransformLayer(filters, l2_reg=l2_reg)
+        self.conv_skip = Conv1D(filters, 3, padding='same', kernel_regularizer=l2(l2_reg))
+        self.conv1 = Conv1D(filters//2, 3, dilation_rate=dils[0], padding='same', kernel_regularizer=l2(l2_reg))
+        self.conv2 = Conv1D(filters, 3, dilation_rate=dils[0], padding='same', kernel_regularizer=l2(l2_reg))
+        self.fc = Dense(filters, kernel_regularizer=l2(l2_reg))
         self.drop = Dropout(drop_rate)
 
     def call(self, x, alpha):
@@ -464,13 +465,13 @@ class StyleExtractor(Model):
         return output
         
 class DecoderLayer(Layer):
-    def __init__(self, d_model, num_heads, drop_rate=0.1, pos_factor=1):
+    def __init__(self, d_model, num_heads, drop_rate=0.1, pos_factor=1, l2_reg=0.0):
         super().__init__()
         self.text_pe = positional_encoding(2000, d_model, pos_factor=1)
         self.stroke_pe = positional_encoding(2000, d_model, pos_factor=pos_factor)
         self.drop = Dropout(drop_rate)
         self.lnorm = LayerNormalization(epsilon=1e-6, trainable=False)
-        self.text_dense = Dense(d_model)
+        self.text_dense = Dense(d_model, kernel_regularizer=l2(l2_reg))
 
         self.mha = MultiHeadAttention(d_model, num_heads)
         self.mha2 = MultiHeadAttention(d_model, num_heads)
@@ -532,34 +533,34 @@ class Text_Style_Encoder(Model):
         return text_out
 
 class DiffusionWriter(Model):
-    def __init__(self, num_layers=4, c1=128, c2=192, c3=256, drop_rate=0.1, num_heads=8, encoder_att_layers=1, learn_sigma=False):
+    def __init__(self, num_layers=4, c1=128, c2=192, c3=256, drop_rate=0.1, num_heads=8, encoder_att_layers=1, learn_sigma=False, l2_reg=0.00):
         super().__init__()
-        self.input_dense = Dense(c1)
-        self.sigma_ffn = ff_network(c1//4, 2048)
-        self.enc1 = ConvSubLayer(c1, [1, 2])
-        self.enc2 = ConvSubLayer(c2, [1, 2])
-        self.enc3 = DecoderLayer(c2, 3, drop_rate, pos_factor=4)
-        self.enc4 = ConvSubLayer(c3, [1, 2])
-        self.enc5 = DecoderLayer(c3, 4, drop_rate, pos_factor=2)
+        self.input_dense = Dense(c1, kernel_regularizer=l2(l2_reg))
+        self.sigma_ffn = ff_network(c1//4, 2048, l2_reg=l2_reg)
+        self.enc1 = ConvSubLayer(c1, [1, 2], l2_reg=l2_reg)
+        self.enc2 = ConvSubLayer(c2, [1, 2], l2_reg=l2_reg)
+        self.enc3 = DecoderLayer(c2, 3, drop_rate, pos_factor=4, l2_reg=l2_reg)
+        self.enc4 = ConvSubLayer(c3, [1, 2], l2_reg=l2_reg)
+        self.enc5 = DecoderLayer(c3, 4, drop_rate, pos_factor=2, l2_reg=l2_reg)
         self.pool = AveragePooling1D(2)
         self.upsample = UpSampling1D(2)
 
-        self.skip_conv1 = Conv1D(c2, 3, padding='same')
-        self.skip_conv2 = Conv1D(c3, 3, padding='same')
-        self.skip_conv3 = Conv1D(c2*2, 3, padding='same')
+        self.skip_conv1 = Conv1D(c2, 3, padding='same', kernel_regularizer=l2(l2_reg))
+        self.skip_conv2 = Conv1D(c3, 3, padding='same', kernel_regularizer=l2(l2_reg))
+        self.skip_conv3 = Conv1D(c2*2, 3, padding='same', kernel_regularizer=l2(l2_reg))
         self.text_style_encoder = Text_Style_Encoder(c2*2, c2*4, num_heads, encoder_att_layers)
-        self.att_dense = Dense(c2*2)
-        self.att_layers = [DecoderLayer(c2*2, 6, drop_rate) 
+        self.att_dense = Dense(c2*2, kernel_regularizer=l2(l2_reg))
+        self.att_layers = [DecoderLayer(c2*2, 6, drop_rate, l2_reg=l2_reg) 
                      for i in range(num_layers)]
                      
-        self.dec3 = ConvSubLayer(c3, [1, 2])
-        self.dec2 = ConvSubLayer(c2, [1, 1])
-        self.dec1 = ConvSubLayer(c1, [1, 1])
-        self.output_dense = Dense(2)
-        self.pen_lifts_dense = Dense(1, activation='sigmoid')
+        self.dec3 = ConvSubLayer(c3, [1, 2], l2_reg=l2_reg)
+        self.dec2 = ConvSubLayer(c2, [1, 1], l2_reg=l2_reg)
+        self.dec1 = ConvSubLayer(c1, [1, 1], l2_reg=l2_reg)
+        self.output_dense = Dense(2, kernel_regularizer=l2(l2_reg))
+        self.pen_lifts_dense = Dense(1, activation='sigmoid', kernel_regularizer=l2(l2_reg))
         self.learn_sigma = learn_sigma
         if learn_sigma:
-            self.output_sigma = Dense(2, activation='sigmoid')
+            self.output_sigma = Dense(2, activation='sigmoid', kernel_regularizer=l2(l2_reg))
  
     def call(self, strokes, text, sigma, style_vector):
         sigma = self.sigma_ffn(sigma)
