@@ -412,7 +412,7 @@ def main():
     parser.add_argument('--val_every', help='how often to perform validation', default=None, type=int)
     parser.add_argument('--num_heads', help='number of attention heads for encoder', default=8, type=int)
     parser.add_argument('--enc_att_layers', help='number of attention layers for encoder', default=1, type=int)
-    parser.add_argument('--noise_shedule', help='specifies which noise shedule to use (default or cosine)', default='cosine', type=str)
+    parser.add_argument('--noise_shedule', help='specifies which noise shedule to use (default, cosine, linear, fibonacci)', default='cosine', type=str)
     parser.add_argument('--learn_sigma', help='learn cov matrix', action='store_true')
     parser.add_argument('--no-learn_sigma', dest='learn_sigma', action='store_false')
     parser.set_defaults(learn_sigma=False)
@@ -476,7 +476,7 @@ def main():
     with open('./{}/config.json'.format(WEIGHTS_DIR), 'w') as f:
         json.dump(vars(args), f)
 
-    assert NOISE_SHEDULE in ['default', 'cosine']
+    assert NOISE_SHEDULE in ['default', 'cosine', 'linear', 'fibonacci']
     C1 = args.channels
     C2 = C1 * 3//2
     C3 = C1 * 2
@@ -494,14 +494,19 @@ def main():
     tokenizer = utils.Tokenizer()
     if NOISE_SHEDULE == 'cosine':
         beta_set = utils.get_cosine_beta_set(DIFF_STEPS)
-        alpha_set = 1 - beta_set#utils.get_cosine_alpha_set(DIFF_STEPS)
     elif(NOISE_SHEDULE == 'default'):
         beta_set = utils.get_beta_set(DIFF_STEPS)
-        alpha_set = tf.math.cumprod(1-beta_set)
+    elif(NOISE_SHEDULE == 'linear'):
+        beta_set = utils.get_betas_new_linear(DIFF_STEPS)
+    elif(NOISE_SHEDULE == 'fibonacci'):
+        beta_set = utils.get_fibonacci_beta_set(DIFF_STEPS)
     else:
         raise ValueError('Noise shedule not supported')
 
+    alpha_set = 1 - beta_set
+
     print(beta_set)
+    print(alpha_set)
     assert (beta_set > 0).all() and (beta_set <= 1).all()
 
     if STYLE_EXTRACTOR == 'mobilenet':

@@ -18,7 +18,7 @@ def explin(min, max, L):
 
 def get_beta_set(L):
     beta_set = 0.02 + explin(1e-5, 0.4, L)
-    return beta_set
+    return beta_set.numpy()
 
 s = 0.008
 
@@ -49,6 +49,23 @@ def get_cosine_alpha_set(L):
         alpha_set_consine.append(cosine_alpha(i, L))
     return np.array(alpha_set_consine).astype(np.float32)
     #return tf.convert_to_tensor(alpha_set_consine, dtype=tf.float32)
+
+def get_betas_new_linear(T):
+    scale = 1000 / T
+    beta_start = scale * 0.0001
+    beta_end = scale * 0.02
+    return np.linspace(
+        beta_start, beta_end, T, dtype=np.float32
+    )
+
+def get_fibonacci_beta_set(L):
+    #https://arxiv.org/pdf/2009.00713.pdf
+    beta_set_fibonacci = []
+    beta_set_fibonacci.append(1 * 10e-6)
+    beta_set_fibonacci.append(2 * 10e-6)
+    for i in range(2, L):
+        beta_set_fibonacci.append(beta_set_fibonacci[i-1] + beta_set_fibonacci[i-2])
+    return np.array(beta_set_fibonacci)
     
 def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, return_image=False):
     positions = np.cumsum(strokes, axis=0).T[:2]
