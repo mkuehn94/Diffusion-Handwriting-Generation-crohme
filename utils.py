@@ -65,7 +65,7 @@ def get_fibonacci_beta_set(L):
     beta_set_fibonacci.append(2 * 10e-6)
     for i in range(2, L):
         beta_set_fibonacci.append(beta_set_fibonacci[i-1] + beta_set_fibonacci[i-2])
-    return np.array(beta_set_fibonacci)
+    return np.array(beta_set_fibonacci).astype(np.float32)
     
 def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, return_image=False):
     positions = np.cumsum(strokes, axis=0).T[:2]
