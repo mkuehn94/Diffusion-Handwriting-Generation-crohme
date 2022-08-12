@@ -1,3 +1,4 @@
+from unittest.mock import patch
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
@@ -7,6 +8,7 @@ import os
 import io
 import json
 import math
+import uuid
 
 from BTTRcustom.bttr.datamodule.vocab import CROHMEVocab
 
@@ -67,7 +69,7 @@ def get_fibonacci_beta_set(L):
         beta_set_fibonacci.append(beta_set_fibonacci[i-1] + beta_set_fibonacci[i-2])
     return np.array(beta_set_fibonacci).astype(np.float32)
     
-def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, return_image=False):
+def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, return_image=False, svg_path=None, svg_name=None):
     positions = np.cumsum(strokes, axis=0).T[:2]
     prev_ind = 0
     W, H = np.max(positions, axis=-1) - np.min(positions, axis=-1)
@@ -88,6 +90,8 @@ def show(strokes, name='', show_output=True, scale=1, stroke_weights=None, retur
         
     plt.axis('off')
     if name: plt.savefig('./' + name + '.png', bbox_inches='tight')
+    if svg_path: plt.savefig(os.path.join(svg_path, svg_name + '.svg'), bbox_inches='tight')
+    
     if show_output:  plt.show()
 
     if return_image:
@@ -142,7 +146,7 @@ def get_stroke_bounds(strokes):
     max_y = tf.reduce_max(positions[1])
     return min_x, max_x, min_y, max_y
 
-def run_batch_inference(model, beta_set, alpha_set, text, style, tokenizer=None, time_steps=480, diffusion_mode='new', show_every=None, show_samples=True, path=None, return_image=False, return_both = False):
+def run_batch_inference(model, beta_set, alpha_set, text, style, tokenizer=None, time_steps=480, diffusion_mode='new', show_every=None, show_samples=True, path=None, return_image=False, return_both = False, svg_path=None ,svg_name=None):
     if isinstance(text, str):
         text = tf.constant([tokenizer.encode(text)+[1]])
     elif isinstance(text, list) and isinstance(text[0], str):
@@ -185,6 +189,8 @@ def run_batch_inference(model, beta_set, alpha_set, text, style, tokenizer=None,
     x = tf.concat([x, pen_lifts], axis=-1)
     images = []
     for i in range(bs):
+        if svg_path is not None:
+            show(x[i], scale=1, show_output = False, svg_path=svg_path, svg_name=svg_name)
         if return_image or return_both:
             img = show(x[i], scale=1, show_output = show_samples, name=path, return_image=True)
             images.append(img)

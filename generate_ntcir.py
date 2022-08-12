@@ -71,12 +71,12 @@ def main():
     parser.add_argument('--dropout', help='dropout rate, default 0', default=0.0, type=float)
     parser.add_argument('--num_attlayers', help='number of attentional layers at lowest resolution', default=2, type=int)
     parser.add_argument('--channels', help='number of channels in first layer, default 128', default=128, type=int)
-    parser.add_argument('--diffusion_steps', help='number of diffusion steps', default=500, type=int)
+    parser.add_argument('--diffusion_steps', help='number of diffusion steps', default=60, type=int)
     parser.add_argument('--num_heads', help='number of attention heads for encoder', default=8, type=int)
     parser.add_argument('--enc_att_layers', help='number of attention layers for encoder', default=1, type=int)
     parser.add_argument('--noise_shedule', help='specifies which noise shedule to use (default or cosine)', default='cosine', type=str)
     parser.add_argument('--val_path', help='name of the validation dataset to use', default='./data/new.p', type=str)
-    parser.add_argument('--weight_file', help='name of the weight file to use', default='model_step92500.h5', type=str)
+    parser.add_argument('--weight_file', help='name of the weight file to use', default='model_step70000.h5', type=str)
     parser.add_argument('--style_extractor', help='which style extractor to use (default mobilenet)', default='mobilenet', type=str)
     parser.add_argument('--from_bound', help='percentage upper bound of samples to generate', default=0.0, type=float)
     parser.add_argument('--to_bound', help='percentage lower bound of samples to generate', default=1.0, type=float)
@@ -99,7 +99,7 @@ def main():
     WEIGHT_FILE = args.weight_file
     WEIGHT_FILE = "./weights_t60_interp_ignore/" + WEIGHT_FILE
 
-    OUTPUT_PATH = "./output_ntcir"
+    OUTPUT_PATH = "./output_ntcir_svg"
     if not os.path.exists(OUTPUT_PATH):
         os.makedirs(OUTPUT_PATH)
 
@@ -178,17 +178,20 @@ def main():
         timesteps = seq_length * 16
         timesteps = timesteps - (timesteps%8) + 8
 
-        strokes, imgs = utils.run_batch_inference(model, beta_set, alpha_set_bar, np.array([batch_text]), batch_style, 
-                                    tokenizer=tokenizer, time_steps=timesteps, diffusion_mode='new', 
-                                    show_samples=False, path=None, show_every=None, return_both=True)
-
-
         random_id = str(uuid.uuid4())
+        strokes = utils.run_batch_inference(model, beta_set, alpha_set_bar, np.array([batch_text]), batch_style, 
+                                    tokenizer=tokenizer, time_steps=timesteps, diffusion_mode='new', 
+                                    show_samples=False, path=None, show_every=None, return_both=False, svg_path=OUTPUT_PATH, svg_name=random_id)
+        with open(OUTPUT_PATH + '/{}.txt'.format(random_id), 'w') as f:
+            f.write(' '.join(batch_texts))
+
+        '''
+        
         print(OUTPUT_PATH + '/{}.png'.format(random_id))
         plot_from_strokes(strokes, OUTPUT_PATH + '/{}.png'.format(random_id))
         # output list to txt file:
         with open(OUTPUT_PATH + '/{}.txt'.format(random_id), 'w') as f:
-            f.write(' '.join(batch_texts))
+            f.write(' '.join(batch_texts))'''
 
     return
     for batch_n in range(VAL_NSAMPLES // BATCH_SIZE):
